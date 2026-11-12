@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f6f5f1">
+    <title>Daylight — To-do list</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+    <script src="crystal-ball.js" defer></script>
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Daylight home">
+          <span class="brand-mark" aria-hidden="true">✳</span>
+          <span>daylight</span>
+        </a>
+        <span class="date-label" id="today"></span>
+      </header>
+
+      <section class="todo-card" aria-labelledby="page-title">
+        <div class="intro">
+          <div class="intro-copy">
+            <p class="eyebrow">A little progress, every day</p>
+            <h1 id="page-title">Make room for <br class="title-break"><span>what matters.</span></h1>
+            <p class="subtitle">Your day, one thing at a time.</p>
+          </div>
+          <div class="crystal-ball" id="crystal-ball" aria-hidden="true"></div>
+        </div>
+
+        <div id="task-screen">
+        <form class="add-form" id="todo-form">
+          <label class="sr-only" for="todo-input">Add a task</label>
+          <input
+            id="todo-input"
+            name="todo"
+            type="text"
+            maxlength="160"
+            placeholder="What needs doing?"
+            autocomplete="off"
+            required
+          >
+          <button class="add-button" type="submit" aria-label="Add task">+</button>
+        </form>
+
+        <section class="calendar-panel" id="calendar-panel" aria-label="Choose a task date" hidden>
+          <h2 class="calendar-month" id="calendar-month"></h2>
+          <div class="calendar-weekdays" aria-hidden="true">
+            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
+            <span>Thu</span><span>Fri</span><span>Sat</span>
+          </div>
+          <div class="calendar-grid" id="calendar-grid"></div>
+          <p class="calendar-hint">Choose a day to view or plan tasks. Past dates are unavailable.</p>
+        </section>
+
+        <div class="list-heading">
+          <h2 id="list-title">Today’s list</h2>
+          <span id="task-count" class="task-count" aria-live="polite"></span>
+        </div>
+
+        <ul class="todo-list" id="todo-list" aria-label="Tasks"></ul>
+
+        <div class="empty-state" id="empty-state">
+          <span class="empty-icon" aria-hidden="true">✦</span>
+          <p id="empty-message">A fresh start. Add your first task above.</p>
+        </div>
+
+        <footer class="list-footer">
+          <div class="filter-controls">
+            <nav class="filters" aria-label="Filter tasks">
+              <button type="button" class="filter is-active" data-filter="all" aria-pressed="true">All</button>
+              <button type="button" class="filter" data-filter="active" aria-pressed="false">To do</button>
+              <button type="button" class="filter" data-filter="completed" aria-pressed="false">Done</button>
+            </nav>
+            <button
+              class="calendar-toggle"
+              id="calendar-toggle"
+              type="button"
+              aria-label="Open calendar"
+              aria-expanded="false"
+              aria-controls="calendar-panel"
+            >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <rect x="3" y="5" width="14" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M6.5 3.5v3M13.5 3.5v3M3.5 8.5h13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M6.5 11h2M11.5 11h2M6.5 14h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button
+              class="notification-toggle"
+              id="notification-toggle"
+              type="button"
+              aria-label="Open today’s reminders"
+            >
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                <path d="M5.5 8a4.5 4.5 0 0 1 9 0c0 5 2 5 2 6H3.5c0-1 2-1 2-6ZM8 16h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="notification-badge" id="reminder-badge" hidden></span>
+            </button>
+          </div>
+          <button class="clear-button" id="clear-completed" type="button">Clear completed</button>
+        </footer>
+        </div>
+
+        <section class="reminder-screen" id="reminder-screen" aria-labelledby="reminder-title" hidden>
+          <div class="reminder-heading">
+            <button class="back-button" id="back-to-list" type="button">← Back to list</button>
+            <h2 id="reminder-title">Today’s reminders</h2>
+            <p id="reminder-date"></p>
+          </div>
+
+          <div class="reminder-settings">
+            <h3>Reminder times</h3>
+            <p>Get a browser notification for unfinished tasks at these times.</p>
+            <div class="reminder-permission-row">
+              <button class="permission-button" id="enable-reminders" type="button">Enable notifications</button>
+              <p id="reminder-status" role="status" aria-live="polite"></p>
+            </div>
+            <form class="reminder-time-form" id="reminder-time-form">
+              <label for="reminder-time">Add a time</label>
+              <div>
+                <input id="reminder-time" type="time" value="08:00" required>
+                <button class="time-add-button" type="submit">Add time</button>
+              </div>
+            </form>
+            <ul class="reminder-times" id="reminder-times" aria-label="Scheduled reminder times"></ul>
+          </div>
+
+          <ul class="reminder-list" id="reminder-list" aria-label="Today’s incomplete tasks"></ul>
+          <div class="reminder-empty" id="reminder-empty" hidden>
+            <span class="empty-icon" aria-hidden="true">✦</span>
+            <p>You’re all caught up for today.</p>
+          </div>
+          <p class="privacy-note">Notifications contain no task details. Your list stays on this device.</p>
+        </section>
+      </section>
+
+      <p class="save-note"><span aria-hidden="true">●</span> Your list is saved on this device</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "name": "Daylight To-do List",
+  "short_name": "Daylight",
+  "start_url": "/?screen=reminders",
+  "display": "standalone",
+  "background_color": "#f6f5f1",
+  "theme_color": "#f6f5f1",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
