@@ -4,12 +4,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "node --test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
+    "google-auth-library": "^11.3.4",
+    "nodemailer": "^10.5.0",
+    "pg": "^8.23.1",
     "web-push": "^3.6.7"
   }
 }

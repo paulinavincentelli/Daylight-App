@@ -4,12 +4,24 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import webPush from "web-push";
+import { OAuth2Client } from "google-auth-library";
+import { createAccountApi } from "./account-api.mjs";
+import { createDatabase, initializeDatabase } from "./database.mjs";
+import {
+  MAX_VOICE_REQUEST_BYTES,
+  transcribeVoiceAudio,
+} from "./voice-transcription.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const dataDirectory = join(root, "data");
 const vapidPath = join(dataDirectory, "vapid-keys.json");
 const subscriptionsPath = join(dataDirectory, "subscriptions.json");
 const port = Number(process.env.PORT || 3000);
+const isProduction = process.env.NODE_ENV === "production";
+const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || "";
+const googleAuthClient = googleClientId
+  ? new OAuth2Client(googleClientId)
+  : null;
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
   ["/index.html", ["index.html", "text/html; charset=utf-8"]],
@@ -19,21 +31,35 @@ const files = new Map([
   ["/sw.js", ["sw.js", "text/javascript; charset=utf-8"]],
   ["/manifest.webmanifest", ["manifest.webmanifest", "application/manifest+json"]],
   ["/icon.svg", ["icon.svg", "image/svg+xml"]],
+  ["/icon-192.png", ["icon-192.png", "image/png"]],
+  ["/icon-512.png", ["icon-512.png", "image/png"]],
+  ["/apple-touch-icon.png", ["apple-touch-icon.png", "image/png"]],
   ["/logo.svg", ["logo.svg", "image/svg+xml"]],
 ]);
 
 let vapidKeys;
 let subscriptions = new Map();
+let pool;
+let accountApi;
+let appOrigin;
 let schedulerRunning = false;
 let subscriptionWrites = Promise.resolve();
 let assistantRequestTimes = [];
+let assistantDailyRequestTimes = [];
+const assistantUserRequestTimes = new Map();
 
 function sendJson(response, status, value) {
-  response.writeHead(status, {
+  const headers = {
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",
-  });
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+  };
+  if (isProduction) {
+    headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+  }
+  response.writeHead(status, headers);
   response.end(JSON.stringify(value));
 }
 
@@ -41,6 +67,38 @@ function requestError(status, message) {
   const error = new Error(message);
   error.status = status;
   return error;
+}
+
+function recordAiRequest(user) {
+  const now = Date.now();
+  assistantRequestTimes = assistantRequestTimes.filter((time) => now - time < 60_000);
+  if (assistantRequestTimes.length >= 12) {
+    throw requestError(429, "Please wait a minute before sending more AI requests.");
+  }
+  assistantDailyRequestTimes = assistantDailyRequestTimes.filter(
+    (time) => now - time < 24 * 60 * 60 * 1000
+  );
+  if (assistantDailyRequestTimes.length >= 200) {
+    throw requestError(429, "The shared daily AI limit has been reached. Try again tomorrow.");
+  }
+  assistantRequestTimes.push(now);
+  assistantDailyRequestTimes.push(now);
+
+  if (user) {
+    for (const [userId, times] of assistantUserRequestTimes) {
+      const activeTimes = times.filter((time) => now - time < 60_000);
+      if (activeTimes.length) assistantUserRequestTimes.set(userId, activeTimes);
+      else assistantUserRequestTimes.delete(userId);
+    }
+    const recent = (assistantUserRequestTimes.get(user.id) || []).filter(
+      (time) => now - time < 60_000
+    );
+    if (recent.length >= 6) {
+      throw requestError(429, "Please wait a minute before sending more AI requests.");
+    }
+    recent.push(now);
+    assistantUserRequestTimes.set(user.id, recent);
+  }
 }
 
 async function readJson(request, maxBytes = 32_768) {
@@ -105,18 +163,19 @@ function validDateKey(value) {
   return value;
 }
 
-function validAssistantRequest(body) {
+function validAssistantRequest(body, authoritativeTasks) {
   if (typeof body.message !== "string" || !body.message.trim() || body.message.length > 2000) {
     throw requestError(400, "Provide a message of up to 2,000 characters.");
   }
-  if (!Array.isArray(body.tasks) || body.tasks.length > 100) {
-    throw requestError(400, "Provide up to 100 task records.");
+  const taskSource = authoritativeTasks ?? body.tasks;
+  if (!Array.isArray(taskSource) || taskSource.length > 1000) {
+    throw requestError(400, "Provide up to 1,000 task records.");
   }
   if (!Array.isArray(body.history) || body.history.length > 8) {
     throw requestError(400, "Provide up to 8 recent chat messages.");
   }
   const taskIds = new Set();
-  const tasks = body.tasks.map((task) => {
+  const tasks = taskSource.map((task) => {
     if (
       !task ||
       typeof task.id !== "string" ||
@@ -227,24 +286,32 @@ function validateAssistantChanges(rawChanges, context) {
   });
 }
 
-async function handleAssistant(request, response) {
+async function handleAssistant(request, response, user) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
     throw requestError(503, "AI chat is not configured. Set GEMINI_API_KEY on the local server.");
   }
 
-  const now = Date.now();
-  assistantRequestTimes = assistantRequestTimes.filter((time) => now - time < 60_000);
-  if (assistantRequestTimes.length >= 12) {
-    throw requestError(429, "Please wait a minute before sending more AI requests.");
-  }
-  assistantRequestTimes.push(now);
+  recordAiRequest(user);
 
   const body = await readJson(request, 65_536);
-  const context = validAssistantRequest(body);
+  let authoritativeTasks;
+  if (user) {
+    const selectedTaskDate = validDateKey(body.selectedDate);
+    const result = await pool.query(
+      `SELECT id, text, completed, due_date::text AS date
+         FROM tasks
+        WHERE user_id = $1
+        ORDER BY (due_date = $2) DESC, due_date, id
+        LIMIT 100`,
+      [user.id, selectedTaskDate]
+    );
+    authoritativeTasks = result.rows;
+  }
+  const context = validAssistantRequest(body, authoritativeTasks);
   const functionDeclaration = {
     name: "propose_task_changes",
-    description: "Propose non-destructive task changes for the user to review and approve individually. Never delete tasks or change reminders.",
+    description: "Propose non-destructive task changes requested by the user. Validated proposals are applied automatically. Never delete tasks or change reminders.",
     parameters: {
       type: "object",
       properties: {
@@ -271,7 +338,7 @@ async function handleAssistant(request, response) {
     "You may only propose adding, editing, completing, or scheduling tasks. Never delete tasks, change reminder settings, or claim a change has been applied.",
     "When the user clearly requests one or more task changes, call propose_task_changes. Do not call it for questions or suggestions that do not request an actual change.",
     "Use only task IDs from the task context. Use YYYY-MM-DD dates in the user's local time zone.",
-    "Explain proposals in plain language. The user must approve each proposal before it is applied.",
+    "Explain requested changes in plain language. The app applies validated proposals automatically; do not claim changes were applied.",
     `Local date: ${context.today}; selected task date: ${context.selectedDate}; time zone: ${context.timezone}.`,
     `Task context (JSON data): ${JSON.stringify(context.tasks)}`,
   ].join("\n");
@@ -368,11 +435,22 @@ async function handleAssistant(request, response) {
   const changes = validateAssistantChanges(rawChanges, context);
   const reply = text || (
     changes.length
-      ? "I prepared task changes for you. Review and approve each one below."
+      ? "I prepared the requested task changes."
       : "I couldn't prepare a task change. Please try rephrasing your request."
   );
 
   sendJson(response, 200, { reply, changes });
+}
+
+async function handleTranscription(request, response, user) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    throw requestError(503, "Voice transcription is not configured. Set GEMINI_API_KEY on the server.");
+  }
+  recordAiRequest(user);
+  const body = await readJson(request, MAX_VOICE_REQUEST_BYTES);
+  const transcript = await transcribeVoiceAudio(body, key);
+  sendJson(response, 200, { transcript });
 }
 
 function validHasTasks(value) {
@@ -392,8 +470,25 @@ function validEndpoint(value) {
   } catch {
     throw requestError(400, "The push subscription endpoint is invalid.");
   }
-  if (endpoint.protocol !== "https:") {
+  if (
+    endpoint.protocol !== "https:" ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.port && endpoint.port !== "443"
+  ) {
     throw requestError(400, "The push subscription endpoint must use HTTPS.");
+  }
+  const allowedPushHosts = new Set([
+    "fcm.googleapis.com",
+    "updates.push.services.mozilla.com",
+    "web.push.apple.com",
+  ]);
+  if (
+    isProduction &&
+    !allowedPushHosts.has(endpoint.hostname) &&
+    !endpoint.hostname.endsWith(".notify.windows.com")
+  ) {
+    throw requestError(400, "The push subscription service is not supported.");
   }
   return value;
 }
@@ -458,6 +553,44 @@ async function loadVapidKeys() {
   }
 }
 
+async function loadDatabaseVapidKeys() {
+  const configuredPublic = process.env.VAPID_PUBLIC_KEY;
+  const configuredPrivate = process.env.VAPID_PRIVATE_KEY;
+  if (configuredPublic || configuredPrivate) {
+    if (!configuredPublic || !configuredPrivate) {
+      throw new Error("Set both VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY.");
+    }
+    return { publicKey: configuredPublic, privateKey: configuredPrivate };
+  }
+
+  const { rows } = await pool.query(
+    "SELECT key, value FROM app_settings WHERE key IN ('vapid_public_key', 'vapid_private_key')"
+  );
+  const saved = Object.fromEntries(rows.map(({ key, value }) => [key, value]));
+  if (saved.vapid_public_key && saved.vapid_private_key) {
+    return {
+      publicKey: saved.vapid_public_key,
+      privateKey: saved.vapid_private_key,
+    };
+  }
+
+  const generated = webPush.generateVAPIDKeys();
+  await pool.query(
+    `INSERT INTO app_settings(key, value)
+     VALUES ('vapid_public_key', $1), ('vapid_private_key', $2)
+     ON CONFLICT(key) DO NOTHING`,
+    [generated.publicKey, generated.privateKey]
+  );
+  const stored = await pool.query(
+    "SELECT key, value FROM app_settings WHERE key IN ('vapid_public_key', 'vapid_private_key')"
+  );
+  const keys = Object.fromEntries(stored.rows.map(({ key, value }) => [key, value]));
+  return {
+    publicKey: keys.vapid_public_key,
+    privateKey: keys.vapid_private_key,
+  };
+}
+
 async function loadSubscriptions() {
   try {
     const saved = JSON.parse(await readFile(subscriptionsPath, "utf8"));
@@ -495,10 +628,13 @@ function saveSubscriptions() {
 async function runScheduler() {
   if (schedulerRunning) return;
   schedulerRunning = true;
-  let changed = false;
-  const now = new Date();
-
   try {
+    if (pool) {
+      await runDatabaseScheduler();
+      return;
+    }
+    let changed = false;
+    const now = new Date();
     for (const [endpoint, record] of subscriptions) {
       const { date, time } = localClock(record.timezone, now);
       if (record.sentDate !== date) {
@@ -542,9 +678,113 @@ async function runScheduler() {
   }
 }
 
+async function runDatabaseScheduler() {
+  const client = await pool.connect();
+  let locked = false;
+  try {
+    const lock = await client.query(
+      "SELECT pg_try_advisory_lock($1) AS locked",
+      [726104202]
+    );
+    locked = lock.rows[0].locked;
+    if (!locked) return;
+
+    const { rows } = await client.query(
+      `SELECT endpoint, user_id, subscription, times, timezone,
+              sent_date::text AS sent_date, sent_times
+         FROM push_subscriptions`
+    );
+    const now = new Date();
+    for (const record of rows) {
+      const { date, time } = localClock(record.timezone, now);
+      let sentTimes = record.sent_date === date ? record.sent_times : [];
+      if (record.sent_date !== date) {
+        await client.query(
+          "UPDATE push_subscriptions SET sent_date = $1, sent_times = '{}' WHERE endpoint = $2",
+          [date, record.endpoint]
+        );
+      }
+
+      if (!record.times.includes(time) || sentTimes.includes(time)) continue;
+      const tasks = await client.query(
+        "SELECT EXISTS(SELECT 1 FROM tasks WHERE user_id = $1 AND due_date = $2 AND completed = FALSE) AS has_tasks",
+        [record.user_id, date]
+      );
+      if (!tasks.rows[0].has_tasks) continue;
+
+      sentTimes = [...sentTimes, time];
+      await client.query(
+        "UPDATE push_subscriptions SET sent_date = $1, sent_times = $2 WHERE endpoint = $3",
+        [date, sentTimes, record.endpoint]
+      );
+      try {
+        await webPush.sendNotification(
+          record.subscription,
+          JSON.stringify({
+            title: "Daylight reminder",
+            body: "Your unfinished tasks are ready.",
+            tag: `daylight-${date}-${time}`,
+            url: "/?screen=reminders",
+          })
+        );
+      } catch (error) {
+        if (error.statusCode === 404 || error.statusCode === 410) {
+          await client.query(
+            "DELETE FROM push_subscriptions WHERE endpoint = $1",
+            [record.endpoint]
+          );
+          console.info("Removed an expired push subscription.");
+        } else {
+          console.error("Could not deliver a scheduled reminder.", error);
+        }
+      }
+    }
+  } finally {
+    if (locked) {
+      await client.query("SELECT pg_advisory_unlock($1)", [726104202]);
+    }
+    client.release();
+  }
+}
+
+async function cleanupExpiredAuthData() {
+  if (!pool) return;
+  await Promise.all([
+    pool.query("DELETE FROM email_tokens WHERE expires_at <= NOW()"),
+    pool.query("DELETE FROM sessions WHERE expires_at <= NOW()"),
+  ]);
+}
+
 async function handleApi(request, response, pathname) {
+  if (pathname === "/api/auth/config" && request.method === "GET") {
+    sendJson(response, 200, { googleClientId: pool ? googleClientId : "" });
+    return;
+  }
+
+  if (pathname === "/api/health" && request.method === "GET") {
+    if (pool) await pool.query("SELECT 1");
+    sendJson(response, 200, { ok: true });
+    return;
+  }
+
+  if (pathname === "/api/auth/me" && !pool && request.method === "GET") {
+    sendJson(response, 200, { authRequired: false, user: null });
+    return;
+  }
+
+  if (accountApi && (await accountApi.handle(request, response, pathname))) {
+    return;
+  }
+
+  const user = pool ? await accountApi.requireUser(request) : null;
+
+  if (pathname === "/api/transcribe" && request.method === "POST") {
+    await handleTranscription(request, response, user);
+    return;
+  }
+
   if (pathname === "/api/assistant" && request.method === "POST") {
-    await handleAssistant(request, response);
+    await handleAssistant(request, response, user);
     return;
   }
 
@@ -556,11 +796,44 @@ async function handleApi(request, response, pathname) {
   if (pathname === "/api/subscribe" && request.method === "POST") {
     const body = await readJson(request);
     const subscription = validSubscription(body.subscription);
+    const times = validTimes(body.times);
+    const timezone = validTimezone(body.timezone);
+    if (pool) {
+      const current = await pool.query(
+        "SELECT 1 FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2",
+        [subscription.endpoint, user.id]
+      );
+      if (!current.rowCount) {
+        const count = await pool.query(
+          "SELECT COUNT(*)::integer AS total FROM push_subscriptions WHERE user_id = $1",
+          [user.id]
+        );
+        if (count.rows[0].total >= 5) {
+          throw requestError(429, "An account can enable reminders on up to 5 devices.");
+        }
+      }
+      await pool.query(
+        `INSERT INTO push_subscriptions(endpoint, user_id, subscription, times, timezone)
+         VALUES($1, $2, $3, $4, $5)
+         ON CONFLICT(endpoint) DO UPDATE SET
+           user_id = EXCLUDED.user_id,
+           subscription = EXCLUDED.subscription,
+           times = EXCLUDED.times,
+           timezone = EXCLUDED.timezone,
+           sent_date = NULL,
+           sent_times = '{}',
+           updated_at = NOW()`,
+        [subscription.endpoint, user.id, subscription, times, timezone]
+      );
+      sendJson(response, 201, { ok: true });
+      return;
+    }
+
     const previous = subscriptions.get(subscription.endpoint);
     subscriptions.set(subscription.endpoint, {
       subscription,
-      times: validTimes(body.times),
-      timezone: validTimezone(body.timezone),
+      times,
+      timezone,
       hasTasks: validHasTasks(body.hasTasks),
       tasksDate: validDateKey(body.tasksDate),
       sentDate: previous?.sentDate ?? "",
@@ -574,10 +847,26 @@ async function handleApi(request, response, pathname) {
   if (pathname === "/api/schedule" && request.method === "PUT") {
     const body = await readJson(request);
     const endpoint = validEndpoint(body.endpoint);
+    const times = validTimes(body.times);
+    const timezone = validTimezone(body.timezone);
+    if (pool) {
+      const result = await pool.query(
+        `UPDATE push_subscriptions
+            SET times = $1, timezone = $2, updated_at = NOW()
+          WHERE endpoint = $3 AND user_id = $4`,
+        [times, timezone, endpoint, user.id]
+      );
+      if (!result.rowCount) {
+        throw requestError(404, "Push subscription was not found.");
+      }
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+
     const record = subscriptions.get(endpoint);
     if (!record) throw requestError(404, "Push subscription was not found.");
-    record.times = validTimes(body.times);
-    record.timezone = validTimezone(body.timezone);
+    record.times = times;
+    record.timezone = timezone;
     record.hasTasks = validHasTasks(body.hasTasks);
     record.tasksDate = validDateKey(body.tasksDate);
     await saveSubscriptions();
@@ -588,6 +877,14 @@ async function handleApi(request, response, pathname) {
   if (pathname === "/api/subscribe" && request.method === "DELETE") {
     const body = await readJson(request);
     const endpoint = validEndpoint(body.endpoint);
+    if (pool) {
+      await pool.query(
+        "DELETE FROM push_subscriptions WHERE endpoint = $1 AND user_id = $2",
+        [endpoint, user.id]
+      );
+      sendJson(response, 200, { ok: true });
+      return;
+    }
     subscriptions.delete(endpoint);
     await saveSubscriptions();
     sendJson(response, 200, { ok: true });
@@ -600,19 +897,28 @@ async function handleApi(request, response, pathname) {
 async function serve(request, response) {
   const requestUrl = new URL(request.url, "http://127.0.0.1");
   if (requestUrl.pathname.startsWith("/api/")) {
-    const allowedHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
-    if (!allowedHosts.has(request.headers.host)) {
-      sendJson(response, 403, { error: "This local service only accepts localhost requests." });
-      return;
-    }
+    const localHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
+    const allowedHosts = new Set(localHosts);
     const allowedOrigins = new Set([
       `http://localhost:${port}`,
       `http://127.0.0.1:${port}`,
     ]);
-    if (
-      request.method !== "GET" &&
-      !allowedOrigins.has(request.headers.origin)
-    ) {
+    for (const configuredOrigin of [appOrigin, process.env.RENDER_EXTERNAL_URL]) {
+      if (configuredOrigin) {
+        const publicUrl = new URL(configuredOrigin);
+        allowedHosts.add(publicUrl.host);
+        allowedOrigins.add(publicUrl.origin);
+      }
+    }
+    if (!allowedHosts.has(request.headers.host)) {
+      sendJson(response, 403, { error: "Request host is not allowed." });
+      return;
+    }
+    if (request.headers.origin && !allowedOrigins.has(request.headers.origin)) {
+      sendJson(response, 403, { error: "Request origin is not allowed." });
+      return;
+    }
+    if (request.method !== "GET" && !allowedOrigins.has(request.headers.origin)) {
       sendJson(response, 403, { error: "Request origin is not allowed." });
       return;
     }
@@ -633,25 +939,96 @@ async function serve(request, response) {
     "Content-Type": contentType,
     "Cache-Control": filename === "sw.js" ? "no-cache" : "no-store",
     "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), geolocation=(), microphone=(self)",
+    ...(isProduction
+      ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" }
+      : {}),
     "Content-Security-Policy":
-      "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self'; img-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
   });
   response.end(request.method === "HEAD" ? undefined : content);
 }
 
 async function start() {
-  await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
-  vapidKeys = await loadVapidKeys();
-  subscriptions = await loadSubscriptions();
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("PORT must be an integer between 1 and 65535.");
+  }
+  if (process.env.DATABASE_URL) {
+    pool = createDatabase(process.env.DATABASE_URL);
+    pool.on("error", (error) => {
+      console.error("Unexpected Postgres connection error.", error);
+    });
+    await initializeDatabase(pool);
+    await cleanupExpiredAuthData();
+    const configuredOrigin =
+      process.env.APP_ORIGIN ||
+      process.env.RENDER_EXTERNAL_URL ||
+      (!isProduction ? `http://localhost:${port}` : "");
+    if (!configuredOrigin) {
+      throw new Error("Set APP_ORIGIN or provide Render's RENDER_EXTERNAL_URL.");
+    }
+    const parsedOrigin = new URL(configuredOrigin);
+    if (
+      isProduction &&
+      parsedOrigin.protocol !== "https:"
+    ) {
+      throw new Error("APP_ORIGIN must use HTTPS in production.");
+    }
+    if (isProduction && (!process.env.SMTP_HOST || !process.env.SMTP_FROM)) {
+      throw new Error("SMTP_HOST and SMTP_FROM are required for verified accounts.");
+    }
+    if (
+      isProduction &&
+      (!Number.isInteger(Number(process.env.SMTP_PORT || 587)) ||
+        Number(process.env.SMTP_PORT || 587) < 1 ||
+        Number(process.env.SMTP_PORT || 587) > 65535)
+    ) {
+      throw new Error("SMTP_PORT must be a valid port number.");
+    }
+    if (
+      isProduction &&
+      Boolean(process.env.SMTP_USER) !== Boolean(process.env.SMTP_PASSWORD)
+    ) {
+      throw new Error("Set both SMTP_USER and SMTP_PASSWORD, or neither.");
+    }
+    if (
+      isProduction &&
+      !/^(mailto:\S+|https:\/\/\S+)$/.test(process.env.VAPID_SUBJECT || "")
+    ) {
+      throw new Error("Set VAPID_SUBJECT to a mailto: or HTTPS contact URI.");
+    }
+    appOrigin = parsedOrigin.origin;
+    accountApi = createAccountApi({
+      pool,
+      origin: appOrigin,
+      sendJson,
+      verifyGoogleCredential: googleAuthClient
+        ? async (credential) => {
+            const ticket = await googleAuthClient.verifyIdToken({
+              idToken: credential,
+              audience: googleClientId,
+            });
+            return ticket.getPayload();
+          }
+        : undefined,
+    });
+    vapidKeys = await loadDatabaseVapidKeys();
+    console.info("Postgres-backed accounts and task sync are enabled.");
+  } else {
+    if (isProduction) {
+      throw new Error("DATABASE_URL is required in production.");
+    }
+    await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
+    vapidKeys = await loadVapidKeys();
+    subscriptions = await loadSubscriptions();
+  }
   webPush.setVapidDetails(
     process.env.VAPID_SUBJECT || "mailto:notifications@example.com",
     vapidKeys.publicKey,
     vapidKeys.privateKey
   );
-
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error("PORT must be an integer between 1 and 65535.");
-  }
 
   const server = createServer((request, response) => {
     serve(request, response).catch((error) => {
@@ -666,16 +1043,34 @@ async function start() {
     });
   });
 
-  server.listen(port, "127.0.0.1", () => {
-    console.log(`Daylight is available at http://localhost:${port}`);
+  server.listen(port, isProduction ? "0.0.0.0" : "127.0.0.1", () => {
+    console.log(
+      isProduction
+        ? `Daylight is listening on port ${port}.`
+        : `Daylight is available at http://localhost:${port}`
+    );
   });
   const schedulerTick = () => {
     runScheduler().catch((error) => {
       console.error("Reminder scheduler failed.", error);
     });
   };
-  setInterval(schedulerTick, 15_000);
+  const schedulerInterval = setInterval(schedulerTick, 15_000);
+  const authCleanupInterval = setInterval(() => {
+    cleanupExpiredAuthData().catch((error) => {
+      console.error("Could not clean up expired account tokens.", error);
+    });
+  }, 6 * 60 * 60 * 1000);
   schedulerTick();
+  process.on("SIGTERM", () => {
+    clearInterval(schedulerInterval);
+    clearInterval(authCleanupInterval);
+    server.close(() => {
+      pool?.end().catch((error) => {
+        console.error("Could not close the Postgres pool cleanly.", error);
+      });
+    });
+  });
 }
 
 start().catch((error) => {

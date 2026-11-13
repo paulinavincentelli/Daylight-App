@@ -40,6 +40,7 @@ button {
 }
 
 .topbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -514,6 +515,7 @@ h1 span {
 }
 
 .filter,
+.home-button,
 .clear-button,
 .calendar-toggle,
 .settings-toggle {
@@ -528,6 +530,7 @@ h1 span {
 }
 
 .filter:hover,
+.home-button:hover,
 .clear-button:hover,
 .calendar-toggle:hover,
 .settings-toggle:hover {
@@ -938,7 +941,8 @@ a:focus-visible {
     gap: 4px;
   }
 
-  .filter {
+  .filter,
+  .home-button {
     padding-right: 6px;
     padding-left: 6px;
   }
@@ -963,6 +967,279 @@ a:focus-visible {
 
   h1 {
     font-size: 22px;
+  }
+}
+
+#auth-screen[hidden],
+#auth-form[hidden],
+#password-reset-form[hidden],
+.auth-tabs[hidden],
+.auth-text-button[hidden],
+#task-screen[hidden],
+#auth-confirm-field[hidden],
+#account-load-panel[hidden],
+#resend-verification[hidden],
+#sync-reload[hidden],
+#local-import-notice[hidden],
+#account-controls[hidden] {
+  display: none;
+}
+
+.auth-screen {
+  width: min(100%, 380px);
+  margin: 0 auto;
+  padding: 18px 0 12px;
+}
+
+.auth-eyebrow {
+  margin: 0 0 12px;
+  color: #b9f34a;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.auth-screen h2 {
+  margin: 0;
+  color: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(29px, 7vw, 38px);
+  font-weight: 500;
+}
+
+.auth-description,
+.auth-status {
+  color: #aaa5b7;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 25px 0 20px;
+  padding: 4px;
+  border: 1px solid rgba(185, 170, 241, 0.2);
+  border-radius: 12px;
+  background: #0c0b0e;
+}
+
+.auth-tabs button,
+.auth-text-button {
+  border: 0;
+  background: transparent;
+  color: #aaa5b7;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.auth-tabs button {
+  min-height: 38px;
+  flex: 1;
+  border-radius: 9px;
+}
+
+.auth-tabs button.is-active {
+  background: rgba(185, 170, 241, 0.18);
+  color: #fff;
+}
+
+.google-signin[hidden],
+.reminder-settings[hidden] {
+  display: none;
+}
+
+.google-signin {
+  margin-top: 20px;
+}
+
+.google-signin-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  color: #aaa5b7;
+  font-size: 11px;
+}
+
+.google-signin-divider::before,
+.google-signin-divider::after {
+  height: 1px;
+  flex: 1;
+  background: rgba(185, 170, 241, 0.2);
+  content: "";
+}
+
+#google-signin-button {
+  display: flex;
+  min-height: 40px;
+  justify-content: center;
+}
+
+.google-signin-status {
+  margin: 8px 0 0;
+  color: #aaa5b7;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.google-signin-status:empty {
+  display: none;
+}
+
+#auth-form,
+#password-reset-form {
+  display: grid;
+  gap: 10px;
+}
+
+#auth-form label,
+#password-reset-form label {
+  margin-top: 6px;
+  color: #d4caff;
+  font-size: 11px;
+}
+
+#auth-form input,
+#password-reset-form input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(185, 170, 241, 0.3);
+  border-radius: 9px;
+  outline: none;
+  background: #0c0b0e;
+  color: #fff;
+}
+
+#auth-form input:focus,
+#password-reset-form input:focus {
+  border-color: #b9f34a;
+  box-shadow: 0 0 0 3px rgba(185, 243, 74, 0.12);
+}
+
+.auth-submit,
+.local-import-notice button {
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--blue-violet);
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.auth-submit:hover,
+.local-import-notice button:hover {
+  background: var(--star-blue);
+  color: #10131b;
+}
+
+.auth-text-button {
+  margin: 14px 0 0;
+  padding: 4px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-status:empty {
+  display: none;
+}
+
+.account-load-panel p {
+  color: #aaa5b7;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.account-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #aaa5b7;
+  font-size: 10px;
+}
+
+.account-controls button,
+.sync-reload-button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(185, 170, 241, 0.3);
+  border-radius: 9px;
+  background: #0c0b0e;
+  color: #d4caff;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.local-import-notice {
+  margin: 0 0 22px;
+  padding: 15px;
+  border: 1px solid rgba(185, 243, 74, 0.3);
+  border-radius: 12px;
+  background: rgba(185, 243, 74, 0.06);
+}
+
+.local-import-notice p {
+  margin: 0 0 10px;
+  color: #e8e4ef;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.local-import-notice button {
+  min-height: 36px;
+  margin: 0 6px 0 0;
+  font-size: 10px;
+}
+
+.local-import-notice button:last-child {
+  border: 1px solid rgba(185, 170, 241, 0.3);
+  background: transparent;
+  color: #d4caff;
+}
+
+.sync-reload-button {
+  display: block;
+  margin: 0 auto 16px;
+}
+
+.save-note {
+  text-align: center;
+}
+
+@media (max-width: 520px) {
+  .topbar {
+    gap: 8px;
+  }
+
+  .account-controls {
+    gap: 6px;
+  }
+
+  #account-email {
+    display: none;
+  }
+
+  .auth-screen {
+    padding-top: 4px;
+  }
+}
+
+.is-auth .todo-card {
+  padding-top: 40px;
+}
+
+@media (max-width: 520px) {
+  .is-auth .todo-card {
+    padding: 28px clamp(18px, 6vw, 24px) 24px;
   }
 }
 
@@ -1031,28 +1308,32 @@ body {
 
 .date-time {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   flex-direction: column;
-  gap: 3px;
+  gap: 7px;
+  width: 100%;
+  margin: 0 auto 36px;
+  text-align: center;
 }
 
 .date-label {
   color: #fff;
-  font-size: 11px;
+  font-size: 22px;
   font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .time-label {
   color: #fff;
-  font-size: 12px;
+  font-size: 34px;
   font-weight: 600;
+  line-height: 1.1;
 }
 
 .todo-card {
   overflow: visible;
-  padding: clamp(150px, 21vh, 184px) clamp(12px, 6vw, 48px) 25px;
+  padding: clamp(112px, 16vh, 136px) clamp(12px, 6vw, 48px) 25px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1551,43 +1832,6 @@ body {
   opacity: 0.72;
 }
 
-.chat-proposal-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.chat-approve-button,
-.chat-dismiss-button {
-  min-height: 36px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.chat-approve-button {
-  background: var(--blue-violet);
-  color: #fff;
-}
-
-.chat-approve-button:hover {
-  background: var(--star-blue);
-  color: #10131b;
-}
-
-.chat-dismiss-button {
-  background: rgba(255, 255, 255, 0.08);
-  color: #d4caff;
-}
-
-.chat-approve-button:disabled,
-.chat-dismiss-button:disabled {
-  cursor: default;
-}
-
 .chat-form {
   display: flex;
   align-items: flex-end;
@@ -1630,6 +1874,7 @@ body {
 }
 
 .filter,
+.home-button,
 .clear-button,
 .calendar-toggle,
 .notification-toggle,
@@ -1730,7 +1975,7 @@ a:focus-visible {
   }
 
   .todo-card {
-    padding: clamp(150px, 21vh, 184px) clamp(12px, 6vw, 24px) 20px;
+    padding: clamp(112px, 16vh, 136px) clamp(12px, 6vw, 24px) 20px;
     border-radius: 0;
   }
 

@@ -7,6 +7,7 @@
     <title>Daylight — To-do list</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <link rel="stylesheet" href="styles.css">
     <script src="app.js" defer></script>
   </head>
@@ -16,16 +17,65 @@
         <a class="brand" href="#" aria-label="Daylight home">
           <img class="brand-logo" src="logo.svg" alt="Daylight">
         </a>
-        <div class="date-time" aria-label="Current date and time">
-          <span class="date-label" id="today"></span>
-          <span class="time-label" id="clock"></span>
+        <div class="account-controls" id="account-controls" hidden>
+          <span id="account-email"></span>
+          <button type="button" id="sign-out">Sign out</button>
         </div>
       </header>
 
       <section class="todo-card" aria-labelledby="page-title">
         <h1 class="sr-only" id="page-title">Daylight tasks</h1>
 
-        <div id="task-screen">
+        <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title" hidden>
+          <p class="auth-eyebrow">YOUR DAYLIGHT, EVERYWHERE</p>
+          <h2 id="auth-title">Welcome back.</h2>
+          <p class="auth-description">Sign in to keep your tasks in sync across devices.</p>
+          <div class="auth-tabs" role="group" aria-label="Account action">
+            <button type="button" id="show-sign-in" class="is-active" aria-pressed="true">Sign in</button>
+            <button type="button" id="show-sign-up" aria-pressed="false">Create account</button>
+          </div>
+          <form id="auth-form">
+            <label for="auth-email">Email</label>
+            <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="254" required>
+            <label for="auth-password">Password</label>
+            <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required>
+            <div class="auth-confirm-field" id="auth-confirm-field" hidden>
+              <label for="auth-password-confirm">Confirm password</label>
+              <input id="auth-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128">
+            </div>
+            <button class="auth-submit" id="auth-submit" type="submit">Sign in</button>
+          </form>
+          <div class="google-signin" id="google-signin" hidden>
+            <p class="google-signin-divider">or continue with</p>
+            <div id="google-signin-button"></div>
+            <p class="google-signin-status" id="google-signin-status" role="status" aria-live="polite"></p>
+          </div>
+          <button class="auth-text-button" id="forgot-password" type="button">Forgot password?</button>
+          <button class="auth-text-button" id="resend-verification" type="button" hidden>Resend verification email</button>
+          <form id="password-reset-form" hidden>
+            <label for="reset-password">New password</label>
+            <input id="reset-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+            <label for="reset-password-confirm">Confirm new password</label>
+            <input id="reset-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
+            <button class="auth-submit" type="submit">Save new password</button>
+          </form>
+          <p class="auth-status" id="auth-status" role="status" aria-live="polite"></p>
+          <div class="account-load-panel" id="account-load-panel" hidden>
+            <p id="account-load-status" role="status" aria-live="polite"></p>
+            <button class="auth-submit" id="retry-account-load" type="button">Try again</button>
+          </div>
+        </section>
+
+        <div id="task-screen" hidden>
+        <div class="date-time" aria-label="Current date and time">
+          <span class="date-label" id="today"></span>
+          <span class="time-label" id="clock"></span>
+        </div>
+        <div class="local-import-notice" id="local-import-notice" hidden>
+          <p id="local-import-message"></p>
+          <button type="button" id="import-local-tasks">Import tasks</button>
+          <button type="button" id="skip-local-import">Start fresh</button>
+        </div>
         <form class="add-form" id="todo-form">
           <label class="sr-only" for="todo-input">Add a task</label>
           <input
@@ -72,13 +122,13 @@
             autocomplete="off"
           ></textarea>
           <div class="chat-launcher-footer">
-            <span>AI suggestions require your approval</span>
+            <span>Requested task changes apply automatically</span>
             <div class="chat-launcher-actions">
               <button
                 type="button"
                 class="chat-mic-button"
                 id="chat-launcher-mic"
-                aria-label="Start voice input"
+                aria-label="Start voice recording"
                 aria-pressed="false"
                 aria-controls="chat-input"
               >
@@ -98,7 +148,8 @@
 
         <footer class="list-footer">
           <div class="filter-controls">
-            <nav class="filters" aria-label="Filter tasks">
+            <nav class="filters" aria-label="Task navigation">
+              <button type="button" class="home-button" id="home-button" aria-label="Return to today’s tasks">Home</button>
               <button type="button" class="filter is-active" data-filter="all" aria-pressed="true">All</button>
               <button type="button" class="filter" data-filter="active" aria-pressed="false">To do</button>
               <button type="button" class="filter" data-filter="completed" aria-pressed="false">Done</button>
@@ -121,7 +172,7 @@
               class="notification-toggle"
               id="notification-toggle"
               type="button"
-              aria-label="Open today’s reminders"
+              aria-label="Open notifications"
               aria-controls="reminder-screen"
             >
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -133,9 +184,9 @@
               class="settings-toggle"
               id="settings-toggle"
               type="button"
-              aria-label="Open notification settings"
+              aria-label="Open reminder settings"
               aria-controls="reminder-screen"
-              title="Notification settings"
+              title="Reminder settings"
             >
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
                 <path d="M8.2 2.8h3.6l.4 1.8c.5.2 1 .5 1.4.8l1.8-.5 1.8 3.1-1.4 1.3v1.6l1.4 1.3-1.8 3.1-1.8-.5c-.4.3-.9.6-1.4.8l-.4 1.8H8.2l-.4-1.8c-.5-.2-1-.5-1.4-.8l-1.8.5-1.8-3.1 1.4-1.3V9.3L2.8 8l1.8-3.1 1.8.5c.4-.3.9-.6 1.4-.8l.4-1.8Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
@@ -157,7 +208,7 @@
               <button class="chat-exit-button" id="chat-exit" type="button">Exit chat</button>
             </header>
             <div class="chat-messages" id="chat-messages" role="log" aria-live="polite" aria-relevant="additions">
-              <p class="chat-welcome">Ask me to add, edit, complete, or schedule tasks. I’ll show you each change before applying it.</p>
+              <p class="chat-welcome">Ask me to add, edit, complete, or schedule tasks. Requested changes apply automatically.</p>
             </div>
             <form class="chat-form" id="chat-form">
               <label class="sr-only" for="chat-input">Message Daylight AI</label>
@@ -173,7 +224,7 @@
                 class="chat-mic-button"
                 id="chat-mic"
                 type="button"
-                aria-label="Start voice input"
+                aria-label="Start voice recording"
                 aria-pressed="false"
                 aria-controls="chat-input"
               >
@@ -189,18 +240,27 @@
               </button>
             </form>
             <p class="chat-voice-status" id="chat-voice-status" role="status" aria-live="polite">Microphone is off.</p>
-            <p class="chat-privacy-note">Voice input may be processed by your browser’s speech service. When you press Send, the transcript, recent chat history, task list, and selected date and time zone are sent to Google Gemini. Google may use free-tier prompts and responses to improve its products and review them, so don’t send personal, sensitive, or confidential details. Changes always need your approval.</p>
+            <p class="chat-privacy-note">Voice recordings up to 60 seconds are sent to Google Gemini for transcription when you stop recording. Review the transcript before sending; only then are it, recent chat history, task list, and selected date and time zone sent to Gemini. Google may use free-tier prompts and responses to improve its products and review them, so don’t send personal, sensitive, or confidential details. Requested task changes apply automatically; review your request before sending.</p>
           </section>
         </dialog>
 
         <section class="reminder-screen" id="reminder-screen" aria-labelledby="reminder-title" hidden>
           <div class="reminder-heading">
             <button class="back-button" id="back-to-list" type="button">← Back to list</button>
-            <h2 id="reminder-title">Today’s reminders</h2>
+            <h2 id="reminder-title" tabindex="-1">Notifications</h2>
             <p id="reminder-date"></p>
           </div>
 
-          <div class="reminder-settings">
+          <div class="notifications-panel" id="notifications-panel">
+            <ul class="reminder-list" id="reminder-list" aria-label="Today’s incomplete tasks"></ul>
+            <div class="reminder-empty" id="reminder-empty" hidden>
+              <span class="empty-icon" aria-hidden="true">✦</span>
+              <p>You’re all caught up for today.</p>
+            </div>
+            <p class="privacy-note">Notifications contain no task details. Tasks are stored in your account.</p>
+          </div>
+
+          <div class="reminder-settings" id="reminder-settings-panel" hidden>
             <h3 id="reminder-settings-title" tabindex="-1">Reminder times</h3>
             <p>Get a browser notification for unfinished tasks at these times.</p>
             <div class="reminder-permission-row">
@@ -216,17 +276,11 @@
             </form>
             <ul class="reminder-times" id="reminder-times" aria-label="Scheduled reminder times"></ul>
           </div>
-
-          <ul class="reminder-list" id="reminder-list" aria-label="Today’s incomplete tasks"></ul>
-          <div class="reminder-empty" id="reminder-empty" hidden>
-            <span class="empty-icon" aria-hidden="true">✦</span>
-            <p>You’re all caught up for today.</p>
-          </div>
-          <p class="privacy-note">Notifications contain no task details. Your list stays on this device.</p>
         </section>
       </section>
 
-      <p class="save-note"><span aria-hidden="true">●</span> Your list is saved on this device</p>
+      <p class="save-note" id="save-note" hidden><span aria-hidden="true">●</span> <span id="save-note-text">Your list is saved on this device</span></p>
+      <button class="sync-reload-button" id="sync-reload" type="button" hidden>Reload latest account tasks</button>
     </main>
   </body>
 </html>

@@ -1,4 +1,6 @@
 const STORAGE_KEY = "daylight-todos";
+const MAX_VOICE_RECORDING_MS = 60_000;
+const MAX_VOICE_AUDIO_BYTES = 8 * 1024 * 1024;
 const form = document.querySelector("#todo-form");
 const input = document.querySelector("#todo-input");
 const list = document.querySelector("#todo-list");
@@ -8,6 +10,7 @@ const taskCount = document.querySelector("#task-count");
 const listTitle = document.querySelector("#list-title");
 const clearCompletedButton = document.querySelector("#clear-completed");
 const filters = [...document.querySelectorAll(".filter")];
+const homeButton = document.querySelector("#home-button");
 const calendarToggle = document.querySelector("#calendar-toggle");
 const calendarPanel = document.querySelector("#calendar-panel");
 const calendarMonth = document.querySelector("#calendar-month");
@@ -18,6 +21,10 @@ const notificationToggle = document.querySelector("#notification-toggle");
 const settingsToggle = document.querySelector("#settings-toggle");
 const reminderBadge = document.querySelector("#reminder-badge");
 const backToListButton = document.querySelector("#back-to-list");
+const reminderScreenTitle = document.querySelector("#reminder-title");
+const reminderDate = document.querySelector("#reminder-date");
+const notificationsPanel = document.querySelector("#notifications-panel");
+const reminderSettingsPanel = document.querySelector("#reminder-settings-panel");
 const reminderSettingsTitle = document.querySelector("#reminder-settings-title");
 const reminderList = document.querySelector("#reminder-list");
 const reminderEmpty = document.querySelector("#reminder-empty");
@@ -38,6 +45,39 @@ const chatLauncherMicButton = document.querySelector("#chat-launcher-mic");
 const chatMicButton = document.querySelector("#chat-mic");
 const voiceStatus = document.querySelector("#chat-voice-status");
 const clockLabel = document.querySelector("#clock");
+const authScreen = document.querySelector("#auth-screen");
+const authTitle = document.querySelector("#auth-title");
+const authDescription = document.querySelector(".auth-description");
+const authForm = document.querySelector("#auth-form");
+const authEmailInput = document.querySelector("#auth-email");
+const authPasswordInput = document.querySelector("#auth-password");
+const authPasswordConfirm = document.querySelector("#auth-password-confirm");
+const authConfirmField = document.querySelector("#auth-confirm-field");
+const authSubmitButton = document.querySelector("#auth-submit");
+const authStatus = document.querySelector("#auth-status");
+const googleSignIn = document.querySelector("#google-signin");
+const googleSignInButton = document.querySelector("#google-signin-button");
+const googleSignInStatus = document.querySelector("#google-signin-status");
+const accountLoadPanel = document.querySelector("#account-load-panel");
+const accountLoadStatus = document.querySelector("#account-load-status");
+const retryAccountLoadButton = document.querySelector("#retry-account-load");
+const passwordResetForm = document.querySelector("#password-reset-form");
+const resetPasswordInput = document.querySelector("#reset-password");
+const resetPasswordConfirm = document.querySelector("#reset-password-confirm");
+const forgotPasswordButton = document.querySelector("#forgot-password");
+const resendVerificationButton = document.querySelector("#resend-verification");
+const showSignInButton = document.querySelector("#show-sign-in");
+const showSignUpButton = document.querySelector("#show-sign-up");
+const accountControls = document.querySelector("#account-controls");
+const accountEmail = document.querySelector("#account-email");
+const signOutButton = document.querySelector("#sign-out");
+const saveNoteText = document.querySelector("#save-note-text");
+const syncReloadButton = document.querySelector("#sync-reload");
+const localImportNotice = document.querySelector("#local-import-notice");
+const localImportMessage = document.querySelector("#local-import-message");
+const importLocalTasksButton = document.querySelector("#import-local-tasks");
+const skipLocalImportButton = document.querySelector("#skip-local-import");
+const saveNote = document.querySelector(".save-note");
 
 let activeFilter = "all";
 let editingTodoId = null;
@@ -46,18 +86,34 @@ let selectedDate = todayKey;
 let calendarOpen = false;
 let serviceWorkerRegistration = null;
 let remindersEnabled = false;
+let authRequired = false;
+let signedInUser = null;
 let scheduleSyncTimer = null;
 let reminderReturnFocus = notificationToggle;
 let reminderTimes = loadReminderTimes();
 let todos = loadTodos();
 let assistantHistory = [];
 let assistantBusy = false;
-let speechRecognition = null;
+let mediaRecorder = null;
+let microphoneStream = null;
+let voiceChunks = [];
+let voiceChunkBytes = 0;
+let voiceRecordingTimeout = null;
 let voiceListening = false;
-let voiceHadResult = false;
-let voiceErrorOccurred = false;
-let voiceStopRequested = false;
+let voiceStarting = false;
+let voiceTranscribing = false;
+let voiceCancelRequested = false;
+let voiceDiscardOnStop = false;
+let voiceTooLarge = false;
 let voiceDraft = "";
+let authMode = "login";
+let passwordResetToken = "";
+let taskRevision = 0;
+let taskSyncQueue = Promise.resolve();
+let taskSyncPending = 0;
+let taskSyncConflict = false;
+let localTasksToImport = [];
+let googleSignInConfigured = false;
 
 document.querySelector("#today").textContent = formatDate(todayKey, {
   weekday: "short",
@@ -99,7 +155,7 @@ function isValidTime(value) {
 function loadReminderTimes() {
   try {
     const savedTimes = JSON.parse(
-      localStorage.getItem("daylight-reminder-times") ?? '["08:00"]'
+      localStorage.getItem(reminderStorageKey()) ?? '["08:00"]'
     );
     if (!Array.isArray(savedTimes)) return ["08:00"];
     return [...new Set(savedTimes.filter(isValidTime))].sort().slice(0, 8);
@@ -107,6 +163,12 @@ function loadReminderTimes() {
     console.error("Could not load reminder times.", error);
     return ["08:00"];
   }
+}
+
+function reminderStorageKey() {
+  return authRequired && signedInUser
+    ? `daylight-reminder-times:${signedInUser.id}`
+    : "daylight-reminder-times";
 }
 
 function formatTime(value) {
@@ -182,9 +244,9 @@ function renderReminders() {
   reminderBadge.textContent = dueToday.length > 99 ? "99+" : String(dueToday.length);
   notificationToggle.setAttribute(
     "aria-label",
-    `Open today’s reminders${dueToday.length ? ` (${dueToday.length})` : ""}`
+    `Open notifications${dueToday.length ? ` (${dueToday.length})` : ""}`
   );
-  document.querySelector("#reminder-date").textContent = formatDate(todayKey, {
+  reminderDate.textContent = formatDate(todayKey, {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -194,7 +256,7 @@ function renderReminders() {
 function saveReminderTimes() {
   try {
     localStorage.setItem(
-      "daylight-reminder-times",
+      reminderStorageKey(),
       JSON.stringify(reminderTimes)
     );
     queueScheduleSync();
@@ -229,6 +291,7 @@ function saveTodos() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
     queueScheduleSync();
+    queueTaskSync();
     return true;
   } catch (error) {
     console.error("Could not save tasks to local storage.", error);
@@ -236,7 +299,62 @@ function saveTodos() {
   }
 }
 
-async function reminderApi(path, method = "GET", body) {
+function setSaveStatus(message, needsReload = false) {
+  saveNoteText.textContent = message;
+  syncReloadButton.hidden = !needsReload;
+}
+
+function taskBackupKey(userId) {
+  return `daylight-unsynced-tasks:${userId}`;
+}
+
+function taskImportKey(userId) {
+  return `daylight-import-tasks:${userId}`;
+}
+
+function queueTaskSync() {
+  if (!authRequired || !signedInUser) return;
+  const snapshot = todos.map(({ id, text, completed, date }) => ({
+    id,
+    text,
+    completed,
+    date,
+  }));
+  localStorage.setItem(
+    taskBackupKey(signedInUser.id),
+    JSON.stringify(snapshot)
+  );
+  taskSyncPending += 1;
+  setSaveStatus("Saving to your account…");
+  taskSyncQueue = taskSyncQueue.then(async () => {
+    try {
+      if (taskSyncConflict) return;
+      const result = await apiRequest("/api/tasks", "PUT", {
+        revision: taskRevision,
+        tasks: snapshot,
+      });
+      taskRevision = result.revision;
+      if (taskSyncPending === 1) {
+        localStorage.removeItem(taskBackupKey(signedInUser.id));
+        localStorage.removeItem(taskImportKey(signedInUser.id));
+      }
+    } catch (error) {
+      taskSyncConflict = true;
+      console.error("Could not sync tasks to the account.", error);
+      setSaveStatus(
+        "Your latest changes are saved on this device but could not sync.",
+        true
+      );
+    } finally {
+      taskSyncPending = Math.max(0, taskSyncPending - 1);
+      if (!taskSyncPending && !taskSyncConflict) {
+        setSaveStatus("Your tasks are synced to your account.");
+      }
+    }
+  });
+}
+
+async function apiRequest(path, method = "GET", body) {
   const response = await fetch(path, {
     method,
     headers: body ? { "Content-Type": "application/json" } : undefined,
@@ -246,12 +364,517 @@ async function reminderApi(path, method = "GET", body) {
   try {
     result = await response.json();
   } catch (error) {
-    throw new Error(`Reminder service returned an invalid response: ${error.message}`);
+    throw new Error(`Daylight returned an invalid response (${response.status}).`);
   }
   if (!response.ok) {
-    throw new Error(result.error || `Reminder service returned ${response.status}.`);
+    throw new Error(result.error || `Daylight returned ${response.status}.`);
   }
   return result;
+}
+
+async function reminderApi(path, method = "GET", body) {
+  return apiRequest(path, method, body);
+}
+
+async function reloadAccountTasks() {
+  if (
+    taskSyncConflict &&
+    !window.confirm("Reloading will replace this device’s unsynced task changes. Continue?")
+  ) {
+    return;
+  }
+  try {
+    await taskSyncQueue;
+    const result = await apiRequest("/api/tasks");
+    taskRevision = result.revision;
+    taskSyncConflict = false;
+    taskSyncPending = 0;
+    todos = result.tasks;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+    if (signedInUser) {
+      localStorage.removeItem(taskBackupKey(signedInUser.id));
+      localStorage.removeItem(taskImportKey(signedInUser.id));
+    }
+    setSaveStatus("Your tasks are synced to your account.");
+    render();
+  } catch (error) {
+    console.error("Could not reload account tasks.", error);
+    setSaveStatus(`Could not reload tasks: ${error.message}`, true);
+  }
+}
+
+async function refreshAccountTasks() {
+  if (
+    !authRequired ||
+    !signedInUser ||
+    taskSyncPending ||
+    taskSyncConflict
+  ) {
+    return;
+  }
+  try {
+    const result = await apiRequest("/api/tasks");
+    if (result.revision !== taskRevision) {
+      taskRevision = result.revision;
+      todos = result.tasks;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+      setSaveStatus("Your tasks are synced to your account.");
+      render();
+    }
+  } catch (error) {
+    console.error("Could not refresh account tasks.", error);
+    setSaveStatus("Could not refresh your account tasks. Check your connection.");
+  }
+}
+
+function showAuthMessage(message, canResend = false) {
+  authStatus.textContent = message;
+  resendVerificationButton.hidden = !canResend;
+}
+
+function setAccountLoadView(visible, message = "") {
+  const signInElements = [
+    document.querySelector(".auth-eyebrow"),
+    authTitle,
+    authDescription,
+    document.querySelector(".auth-tabs"),
+    authForm,
+    forgotPasswordButton,
+    resendVerificationButton,
+    passwordResetForm,
+    authStatus,
+  ];
+  signInElements.forEach((element) => {
+    element.hidden = visible;
+  });
+  googleSignIn.hidden = visible || !googleSignInConfigured;
+  accountLoadPanel.hidden = !visible;
+  accountLoadStatus.textContent = message;
+}
+
+function setAuthMode(mode) {
+  authMode = mode;
+  authTitle.textContent = mode === "login" ? "Welcome back." : "Create your account.";
+  authDescription.textContent =
+    mode === "login"
+      ? "Sign in to keep your tasks in sync across devices."
+      : "Create an account to securely sync your tasks across devices.";
+  authSubmitButton.textContent =
+    mode === "login" ? "Sign in" : "Create account";
+  authPasswordInput.autocomplete =
+    mode === "login" ? "current-password" : "new-password";
+  authConfirmField.hidden = mode !== "register";
+  authPasswordConfirm.required = mode === "register";
+  forgotPasswordButton.hidden = mode !== "login";
+  showSignInButton.classList.toggle("is-active", mode === "login");
+  showSignUpButton.classList.toggle("is-active", mode === "register");
+  showSignInButton.setAttribute("aria-pressed", String(mode === "login"));
+  showSignUpButton.setAttribute("aria-pressed", String(mode === "register"));
+  authStatus.textContent = "";
+  googleSignInStatus.textContent = "";
+  resendVerificationButton.hidden = true;
+}
+
+async function submitGoogleCredential(response) {
+  if (typeof response?.credential !== "string" || !response.credential) {
+    googleSignInStatus.textContent = "Google did not return a sign-in credential.";
+    return;
+  }
+  googleSignInStatus.textContent = "Signing in with Google…";
+  try {
+    const result = await apiRequest("/api/auth/google", "POST", {
+      credential: response.credential,
+    });
+    googleSignInStatus.textContent = "";
+    await showSignedInApp(result.user, todos);
+  } catch (error) {
+    console.error("Could not sign in with Google.", error);
+    googleSignInStatus.textContent = error.message;
+  }
+}
+
+async function initializeGoogleSignIn() {
+  let googleClientId = "";
+  try {
+    const config = await apiRequest("/api/auth/config");
+    googleClientId = config.googleClientId;
+    if (typeof googleClientId !== "string" || !googleClientId) return;
+    googleSignInConfigured = true;
+
+    if (!window.google?.accounts?.id) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.defer = true;
+        script.onload = resolve;
+        script.onerror = () =>
+          reject(new Error("Google sign-in could not be loaded."));
+        document.head.append(script);
+      });
+    }
+    if (!window.google?.accounts?.id) {
+      throw new Error("Google sign-in is unavailable in this browser.");
+    }
+
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: (response) => {
+        void submitGoogleCredential(response);
+      },
+    });
+    window.google.accounts.id.renderButton(googleSignInButton, {
+      theme: "filled_black",
+      size: "large",
+      text: "continue_with",
+      shape: "pill",
+      width: Math.max(240, Math.min(380, document.documentElement.clientWidth - 48)),
+    });
+    googleSignIn.hidden = authScreen.hidden;
+  } catch (error) {
+    console.error("Could not initialize Google sign-in.", error);
+    if (googleClientId) {
+      googleSignInConfigured = true;
+      googleSignIn.hidden = authScreen.hidden;
+      googleSignInStatus.textContent = error.message;
+    }
+  }
+}
+
+function showResetForm(token) {
+  passwordResetToken = token;
+  authTitle.textContent = "Choose a new password.";
+  authDescription.textContent = "Use at least 12 characters for your new password.";
+  document.querySelector(".auth-tabs").hidden = true;
+  authForm.hidden = true;
+  googleSignIn.hidden = true;
+  forgotPasswordButton.hidden = true;
+  resendVerificationButton.hidden = true;
+  passwordResetForm.hidden = false;
+  resetPasswordInput.focus();
+}
+
+async function showSignedInApp(user, localTasks = []) {
+  document.body.classList.remove("is-auth");
+  signedInUser = user;
+  taskSyncConflict = false;
+  taskSyncPending = 0;
+  taskSyncQueue = Promise.resolve();
+  reminderTimes = loadReminderTimes();
+  renderReminderTimes();
+  authScreen.hidden = !authRequired;
+  taskScreen.hidden = authRequired;
+  reminderScreen.hidden = true;
+  accountControls.hidden = !authRequired;
+  saveNote.hidden = false;
+  syncReloadButton.hidden = true;
+  localImportNotice.hidden = true;
+  if (authRequired) {
+    setAccountLoadView(true, "Loading your account tasks…");
+    accountEmail.textContent = user.email;
+    todos = [];
+    render();
+    setSaveStatus("Loading your account tasks…");
+    try {
+      const result = await apiRequest("/api/tasks");
+      taskRevision = result.revision;
+      todos = result.tasks;
+      let pendingTasks = [];
+      let pendingBackupAvailable = false;
+      let savedLocalTasks = localTasks;
+      try {
+        const pendingRaw = localStorage.getItem(taskBackupKey(user.id));
+        if (pendingRaw !== null) {
+          const savedPending = JSON.parse(pendingRaw);
+          if (Array.isArray(savedPending)) {
+            pendingBackupAvailable = true;
+            pendingTasks = savedPending.filter(
+              (task) =>
+                task &&
+                typeof task.id === "string" &&
+                typeof task.text === "string" &&
+                typeof task.completed === "boolean" &&
+                /^\d{4}-\d{2}-\d{2}$/.test(task.date ?? "")
+            );
+          }
+        }
+        if (!savedLocalTasks.length) {
+          const savedImport = JSON.parse(
+            localStorage.getItem(taskImportKey(user.id)) ?? "[]"
+          );
+          if (Array.isArray(savedImport)) {
+            savedLocalTasks = savedImport.filter(
+              (task) =>
+                task &&
+                typeof task.id === "string" &&
+                typeof task.text === "string" &&
+                typeof task.completed === "boolean" &&
+                /^\d{4}-\d{2}-\d{2}$/.test(task.date ?? "")
+            );
+          }
+        }
+      } catch (error) {
+        console.error("Could not read the unsynced task backup.", error);
+      }
+      if (pendingBackupAvailable) {
+        localTasksToImport = pendingTasks;
+        importLocalTasksButton.textContent = "Use saved task list";
+        skipLocalImportButton.textContent = "Keep account list";
+        localImportMessage.textContent =
+          `This device has unsynced changes${pendingTasks.length ? ` for ${pendingTasks.length} task${pendingTasks.length === 1 ? "" : "s"}` : ""}. Replace the account list with the saved copy?`;
+        localImportNotice.hidden = false;
+      } else if (!todos.length && savedLocalTasks.length) {
+        localTasksToImport = savedLocalTasks;
+        localStorage.setItem(
+          taskImportKey(user.id),
+          JSON.stringify(savedLocalTasks)
+        );
+        importLocalTasksButton.textContent = "Import tasks";
+        skipLocalImportButton.textContent = "Start fresh";
+        localImportMessage.textContent =
+          `This browser has ${savedLocalTasks.length} saved task${savedLocalTasks.length === 1 ? "" : "s"}. Import them into this account?`;
+        localImportNotice.hidden = false;
+      } else if (todos.length) {
+        localStorage.removeItem(taskImportKey(user.id));
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+      setSaveStatus("Your tasks are synced to your account.");
+      accountLoadPanel.hidden = true;
+      authScreen.hidden = true;
+      taskScreen.hidden = false;
+    } catch (error) {
+      console.error("Could not load account tasks.", error);
+      setAccountLoadView(
+        true,
+        `Could not load your account tasks: ${error.message}`
+      );
+      authScreen.hidden = false;
+      taskScreen.hidden = true;
+      saveNote.hidden = true;
+    }
+  } else {
+    setAccountLoadView(false);
+    authScreen.hidden = true;
+    taskScreen.hidden = false;
+    setSaveStatus("Your list is saved on this device");
+  }
+  render();
+  await initializeReminderService();
+  if (new URLSearchParams(location.search).get("screen") === "reminders") {
+    showReminderScreen();
+  }
+}
+
+function showSignInScreen(message = "") {
+  document.body.classList.add("is-auth");
+  authScreen.hidden = false;
+  taskScreen.hidden = true;
+  reminderScreen.hidden = true;
+  accountControls.hidden = true;
+  saveNote.hidden = true;
+  syncReloadButton.hidden = true;
+  signedInUser = null;
+  setAccountLoadView(false);
+  setAuthMode("login");
+  authForm.hidden = false;
+  passwordResetForm.hidden = true;
+  document.querySelector(".auth-tabs").hidden = false;
+  forgotPasswordButton.hidden = false;
+  showAuthMessage(message);
+  authEmailInput.focus();
+}
+
+authForm.addEventListener("submit", submitAuthForm);
+passwordResetForm.addEventListener("submit", submitPasswordReset);
+showSignInButton.addEventListener("click", () => setAuthMode("login"));
+showSignUpButton.addEventListener("click", () => setAuthMode("register"));
+forgotPasswordButton.addEventListener("click", requestPasswordReset);
+resendVerificationButton.addEventListener("click", resendVerificationEmail);
+signOutButton.addEventListener("click", signOut);
+syncReloadButton.addEventListener("click", reloadAccountTasks);
+retryAccountLoadButton.addEventListener("click", () => {
+  if (signedInUser) showSignedInApp(signedInUser);
+});
+importLocalTasksButton.addEventListener("click", () => {
+  if (signedInUser) {
+    localStorage.removeItem(taskBackupKey(signedInUser.id));
+    localStorage.removeItem(taskImportKey(signedInUser.id));
+  }
+  todos = localTasksToImport;
+  localTasksToImport = [];
+  localImportNotice.hidden = true;
+  saveTodos();
+  render();
+});
+skipLocalImportButton.addEventListener("click", () => {
+  if (signedInUser) {
+    localStorage.removeItem(taskBackupKey(signedInUser.id));
+    localStorage.removeItem(taskImportKey(signedInUser.id));
+  }
+  localTasksToImport = [];
+  localImportNotice.hidden = true;
+  render();
+});
+window.addEventListener("focus", refreshAccountTasks);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshAccountTasks();
+});
+
+async function startApp() {
+  try {
+    const result = await apiRequest("/api/auth/me");
+    authRequired = result.authRequired;
+    if (!authRequired) {
+      await showSignedInApp(null);
+      return;
+    }
+    const hash = new URLSearchParams(location.hash.slice(1));
+    const verifyToken = hash.get("verify");
+    const resetToken = hash.get("reset");
+    if (resetToken) {
+      showSignInScreen();
+      showResetForm(resetToken);
+      return;
+    }
+    if (verifyToken) {
+      try {
+        const verification = await apiRequest("/api/auth/verify-email", "POST", {
+          token: verifyToken,
+        });
+        history.replaceState(null, "", `${location.pathname}${location.search}`);
+        await showSignedInApp(verification.user, todos);
+      } catch (error) {
+        showSignInScreen();
+        showAuthMessage(error.message);
+      }
+      return;
+    }
+    if (result.user) {
+      await showSignedInApp(result.user, todos);
+      return;
+    }
+    showSignInScreen();
+  } catch (error) {
+    if (location.protocol === "file:") {
+      authRequired = false;
+      await showSignedInApp(null);
+      return;
+    }
+    console.error("Could not check the account session.", error);
+    showSignInScreen(`Could not connect to Daylight: ${error.message}`);
+  }
+}
+
+async function submitAuthForm(event) {
+  event.preventDefault();
+  const email = authEmailInput.value.trim();
+  const password = authPasswordInput.value;
+  if (authMode === "register" && password !== authPasswordConfirm.value) {
+    showAuthMessage("The passwords do not match.");
+    authPasswordConfirm.focus();
+    return;
+  }
+  try {
+    const endpoint =
+      authMode === "register" ? "/api/auth/register" : "/api/auth/login";
+    const result = await apiRequest(endpoint, "POST", { email, password });
+    if (authMode === "register") {
+      authStatus.textContent = result.message;
+      resendVerificationButton.hidden = false;
+      return;
+    }
+    await showSignedInApp(result.user, todos);
+  } catch (error) {
+    const canResend = error.message.toLowerCase().includes("verify your email");
+    showAuthMessage(error.message, canResend);
+  }
+}
+
+async function submitPasswordReset(event) {
+  event.preventDefault();
+  if (resetPasswordInput.value !== resetPasswordConfirm.value) {
+    showAuthMessage("The passwords do not match.");
+    resetPasswordConfirm.focus();
+    return;
+  }
+  try {
+    const result = await apiRequest("/api/auth/reset-password", "POST", {
+      token: passwordResetToken,
+      password: resetPasswordInput.value,
+    });
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+    await showSignedInApp(result.user, todos);
+  } catch (error) {
+    showAuthMessage(error.message);
+  }
+}
+
+async function requestPasswordReset() {
+  const email = authEmailInput.value.trim();
+  if (!email) {
+    showAuthMessage("Enter your email address first.");
+    authEmailInput.focus();
+    return;
+  }
+  try {
+    const result = await apiRequest("/api/auth/forgot-password", "POST", { email });
+    showAuthMessage(result.message);
+  } catch (error) {
+    showAuthMessage(error.message);
+  }
+}
+
+async function resendVerificationEmail() {
+  const email = authEmailInput.value.trim();
+  if (!email) {
+    showAuthMessage("Enter your email address first.");
+    authEmailInput.focus();
+    return;
+  }
+  try {
+    const result = await apiRequest(
+      "/api/auth/resend-verification",
+      "POST",
+      { email }
+    );
+    showAuthMessage(result.message);
+  } catch (error) {
+    showAuthMessage(error.message);
+  }
+}
+
+async function signOut() {
+  try {
+    await taskSyncQueue;
+    const subscription =
+      await serviceWorkerRegistration?.pushManager.getSubscription();
+    if (subscription) {
+      try {
+        await reminderApi("/api/subscribe", "DELETE", {
+          endpoint: subscription.endpoint,
+        });
+      } catch (error) {
+        console.error("Could not remove the account reminder subscription.", error);
+      }
+      try {
+        await subscription.unsubscribe();
+      } catch (error) {
+        console.error("Could not unsubscribe this browser from reminders.", error);
+      }
+    }
+    await apiRequest("/api/auth/logout", "POST", {});
+    remindersEnabled = false;
+    taskSyncConflict = false;
+    taskSyncPending = 0;
+    taskSyncQueue = Promise.resolve();
+    enableRemindersButton.textContent = "Enable notifications";
+    accountControls.hidden = true;
+    localImportNotice.hidden = true;
+    showSignInScreen("You have signed out.");
+  } catch (error) {
+    console.error("Could not sign out.", error);
+    setSaveStatus(`Could not sign out: ${error.message}`);
+  }
 }
 
 function queueScheduleSync() {
@@ -626,89 +1249,223 @@ function openChat(draft = "") {
   window.requestAnimationFrame(() => chatInput.focus());
 }
 
-function updateVoiceButtons(listening) {
+function updateVoiceButtons(listening, transcribing = false) {
   [chatLauncherMicButton, chatMicButton].forEach((button) => {
     button.classList.toggle("is-listening", listening);
     button.setAttribute("aria-pressed", String(listening));
-    button.setAttribute("aria-label", listening ? "Stop voice input" : "Start voice input");
-    button.title = listening ? "Stop voice input" : "Start voice input";
+    button.setAttribute("aria-label", listening ? "Stop voice recording" : "Start voice recording");
+    button.title = listening ? "Stop voice recording" : "Start voice recording";
+    button.disabled = transcribing || assistantBusy;
   });
 }
 
-function startVoiceInput() {
-  if (voiceListening && speechRecognition) {
-    voiceStopRequested = true;
-    voiceStatus.textContent = "Stopping voice input…";
-    speechRecognition.stop();
+function stopMicrophoneStream() {
+  microphoneStream?.getTracks().forEach((track) => track.stop());
+  microphoneStream = null;
+}
+
+function stopVoiceInput({ discard = false, status = "" } = {}) {
+  voiceDiscardOnStop ||= discard;
+  if (status) voiceStatus.textContent = status;
+  clearTimeout(voiceRecordingTimeout);
+  voiceRecordingTimeout = null;
+  if (voiceStarting) {
+    voiceCancelRequested = true;
+    return;
+  }
+  if (mediaRecorder?.state === "recording") {
+    try {
+      mediaRecorder.stop();
+    } catch (error) {
+      console.error("Could not stop voice recording.", error);
+      stopMicrophoneStream();
+      mediaRecorder = null;
+      voiceListening = false;
+      chatInput.readOnly = false;
+      updateVoiceButtons(false);
+      voiceStatus.textContent = "Could not stop voice recording. Please try again.";
+    }
+  }
+}
+
+async function blobToBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 32_768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
+  }
+  return btoa(binary);
+}
+
+async function finishVoiceRecording(recorder) {
+  clearTimeout(voiceRecordingTimeout);
+  voiceRecordingTimeout = null;
+  const chunks = voiceChunks;
+  const wasTooLarge = voiceTooLarge;
+  const shouldDiscard = voiceDiscardOnStop;
+  const draft = voiceDraft;
+  const audio = new Blob(chunks, {
+    type: recorder.mimeType || chunks[0]?.type || "",
+  });
+  voiceChunks = [];
+  voiceChunkBytes = 0;
+  voiceTooLarge = false;
+  voiceDiscardOnStop = false;
+  voiceDraft = "";
+  stopMicrophoneStream();
+  if (mediaRecorder === recorder) mediaRecorder = null;
+  voiceListening = false;
+  chatInput.readOnly = false;
+  updateVoiceButtons(false);
+
+  if (wasTooLarge || audio.size > MAX_VOICE_AUDIO_BYTES) {
+    voiceStatus.textContent = "That recording was too large. Please record a shorter message.";
+    return;
+  }
+  if (shouldDiscard) {
+    voiceStatus.textContent = "Voice recording discarded.";
+    return;
+  }
+  if (!audio.size || !audio.type) {
+    voiceStatus.textContent = "No audio was captured. Check your microphone and try again.";
     return;
   }
 
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    voiceStatus.textContent = "Voice input isn’t supported by this browser. You can type your message instead.";
+  voiceTranscribing = true;
+  chatInput.readOnly = true;
+  chatSubmitButton.disabled = true;
+  updateVoiceButtons(false, true);
+  voiceStatus.textContent = "Transcribing your recording…";
+  try {
+    const result = await apiRequest("/api/transcribe", "POST", {
+      audio: await blobToBase64(audio),
+      mimeType: audio.type,
+    });
+    if (typeof result.transcript !== "string") {
+      throw new Error("The transcription service returned an invalid response.");
+    }
+    const transcript = result.transcript.trim();
+    if (!transcript) {
+      voiceStatus.textContent = "No speech was detected. Try recording again.";
+      return;
+    }
+    chatInput.value = [draft, transcript].filter(Boolean).join(" ").slice(0, chatInput.maxLength);
+    chatInput.focus();
+    voiceStatus.textContent = "Voice input captured. Review it, then send when ready.";
+  } catch (error) {
+    console.error("Could not transcribe voice input.", error);
+    voiceStatus.textContent = `Could not transcribe the recording: ${error.message}`;
+  } finally {
+    voiceTranscribing = false;
+    chatInput.readOnly = false;
+    chatSubmitButton.disabled = assistantBusy;
+    updateVoiceButtons(false);
+  }
+}
+
+function voiceStartErrorMessage(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    return "Microphone access was denied. Allow it in your browser settings and try again.";
+  }
+  if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") {
+    return "No microphone was found. Connect a microphone and try again.";
+  }
+  if (error?.name === "NotReadableError" || error?.name === "TrackStartError") {
+    return "The microphone is busy in another app. Close that app and try again.";
+  }
+  return "Could not start voice recording. Check your microphone permission and try again.";
+}
+
+async function startVoiceInput() {
+  if (voiceListening && mediaRecorder) {
+    stopVoiceInput({ status: "Transcribing your recording…" });
+    return;
+  }
+  if (voiceStarting) {
+    voiceCancelRequested = true;
+    return;
+  }
+  if (voiceTranscribing || assistantBusy) return;
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+    voiceStatus.textContent = "Voice recording isn’t supported by this browser. You can type your message instead.";
     return;
   }
 
-  const recognition = new SpeechRecognition();
-  speechRecognition = recognition;
-  recognition.lang = navigator.language || "en-US";
-  recognition.interimResults = true;
-  recognition.continuous = false;
-  voiceDraft = chatInput.value.trim();
-  voiceHadResult = false;
-  voiceErrorOccurred = false;
-  voiceStopRequested = false;
+  voiceStarting = true;
+  voiceCancelRequested = false;
+  voiceStatus.textContent = "Waiting for microphone access…";
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    if (voiceCancelRequested || !chatDialog.open) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
 
-  recognition.onstart = () => {
+    const preferredType = [
+      "audio/webm;codecs=opus",
+      "audio/mp4",
+      "audio/ogg;codecs=opus",
+    ].find((type) => MediaRecorder.isTypeSupported?.(type));
+    const recorder = new MediaRecorder(
+      stream,
+      preferredType ? { mimeType: preferredType } : undefined
+    );
+    voiceDraft = chatInput.value.trim();
+    voiceChunks = [];
+    voiceChunkBytes = 0;
+    voiceDiscardOnStop = false;
+    voiceTooLarge = false;
+    microphoneStream = stream;
+    mediaRecorder = recorder;
+    recorder.ondataavailable = (event) => {
+      if (!event.data.size) return;
+      voiceChunkBytes += event.data.size;
+      if (voiceChunkBytes > MAX_VOICE_AUDIO_BYTES) {
+        voiceTooLarge = true;
+        stopVoiceInput({
+          discard: true,
+          status: "Recording exceeded the audio limit. Please record a shorter message.",
+        });
+        return;
+      }
+      voiceChunks.push(event.data);
+    };
+    recorder.onerror = (event) => {
+      console.error("Voice recording failed.", event.error);
+      stopVoiceInput({
+        discard: true,
+        status: "Voice recording failed. Check your microphone and try again.",
+      });
+    };
+    recorder.onstop = () => {
+      void finishVoiceRecording(recorder);
+    };
+    recorder.start(250);
     voiceListening = true;
     chatInput.readOnly = true;
     updateVoiceButtons(true);
-    voiceStatus.textContent = "Listening… Speak your message.";
-  };
-
-  recognition.onresult = (event) => {
-    const transcript = [...event.results]
-      .map((result) => result[0].transcript)
-      .join("")
-      .trim();
-    if (!transcript) return;
-    voiceHadResult = true;
-    chatInput.value = [voiceDraft, transcript].filter(Boolean).join(" ");
-  };
-
-  recognition.onerror = (event) => {
-    voiceErrorOccurred = true;
-    const messages = {
-      "not-allowed": "Microphone access was denied. Allow it in your browser settings and try again.",
-      "service-not-allowed": "The browser’s speech service is unavailable or not allowed.",
-      "audio-capture": "No microphone was found. Check your microphone and try again.",
-      "no-speech": "No speech was detected. Try again.",
-      network: "The browser’s speech service could not be reached. Check your connection and try again.",
-      aborted: "Voice input stopped.",
-    };
-    voiceStatus.textContent = messages[event.error] || "Voice input failed. You can type your message instead.";
-  };
-
-  recognition.onend = () => {
+    voiceStatus.textContent = "Recording… Tap the microphone to stop. Stops automatically after 60 seconds.";
+    voiceRecordingTimeout = setTimeout(() => {
+      stopVoiceInput({ status: "60-second limit reached. Transcribing your recording…" });
+    }, MAX_VOICE_RECORDING_MS);
+  } catch (error) {
+    stream?.getTracks().forEach((track) => track.stop());
+    microphoneStream = null;
+    mediaRecorder = null;
     voiceListening = false;
     chatInput.readOnly = false;
     updateVoiceButtons(false);
-    speechRecognition = null;
-    if (voiceErrorOccurred) return;
-    voiceStatus.textContent = voiceHadResult
-      ? "Voice input captured. Review it, then send when ready."
-      : voiceStopRequested
-        ? "Voice input stopped."
-        : "No speech was detected. Try again.";
-  };
-
-  try {
-    recognition.start();
-  } catch (error) {
-    speechRecognition = null;
-    voiceErrorOccurred = true;
-    console.error("Could not start voice input.", error);
-    voiceStatus.textContent = "Could not start voice input. Check your microphone permission and try again.";
+    console.error("Could not start voice recording.", error);
+    voiceStatus.textContent = voiceStartErrorMessage(error);
+  } finally {
+    voiceStarting = false;
   }
 }
 
@@ -745,49 +1502,67 @@ function describeAssistantChange(change) {
   })}`;
 }
 
-function applyAssistantChange(change) {
-  const previousTodos = todos;
-  const currentTask = change.taskId
-    ? todos.find((todo) => todo.id === change.taskId)
-    : null;
-  if (change.taskId && !currentTask) {
-    throw new Error("This task no longer exists. Ask the assistant to try again.");
-  }
-  if (
-    currentTask &&
-    (currentTask.text !== change.expectedText ||
+function applyAssistantChanges(changes) {
+  const nextTodos = todos.map((todo) => ({ ...todo }));
+  const changedTaskIds = new Set();
+  for (const change of changes) {
+    if (
+      change.action === "add" &&
+      typeof change.text === "string" &&
+      change.text.trim() &&
+      change.text.length <= 160 &&
+      /^\d{4}-\d{2}-\d{2}$/.test(change.date)
+    ) {
+      nextTodos.unshift({
+        id: crypto.randomUUID(),
+        text: change.text,
+        completed: false,
+        date: change.date,
+      });
+      continue;
+    }
+
+    if (
+      !["edit", "complete", "schedule"].includes(change.action) ||
+      typeof change.taskId !== "string" ||
+      changedTaskIds.has(change.taskId)
+    ) {
+      throw new Error("The assistant proposed an unsupported task change.");
+    }
+    const currentTask = nextTodos.find((todo) => todo.id === change.taskId);
+    if (!currentTask) {
+      throw new Error("This task no longer exists. Ask the assistant to try again.");
+    }
+    if (
+      currentTask.text !== change.expectedText ||
       currentTask.date !== change.expectedDate ||
-      currentTask.completed !== change.expectedCompleted)
-  ) {
-    throw new Error("This task changed since the proposal. Ask the assistant to try again.");
+      currentTask.completed !== change.expectedCompleted
+    ) {
+      throw new Error("This task changed since the proposal. Ask the assistant to try again.");
+    }
+    changedTaskIds.add(change.taskId);
+
+    if (change.action === "edit" && typeof change.text === "string" && change.text.trim()) {
+      currentTask.text = change.text;
+    } else if (change.action === "complete") {
+      currentTask.completed = true;
+    } else if (
+      change.action === "schedule" &&
+      typeof change.date === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(change.date)
+    ) {
+      currentTask.date = change.date;
+    } else {
+      throw new Error("The assistant proposed an invalid task change.");
+    }
   }
 
-  if (change.action === "add") {
-    todos = [{
-      id: crypto.randomUUID(),
-      text: change.text,
-      completed: false,
-      date: change.date,
-    }, ...todos];
-  } else if (change.action === "edit") {
-    todos = todos.map((todo) =>
-      todo.id === change.taskId ? { ...todo, text: change.text } : todo
-    );
-  } else if (change.action === "complete") {
-    todos = todos.map((todo) =>
-      todo.id === change.taskId ? { ...todo, completed: true } : todo
-    );
-  } else if (change.action === "schedule") {
-    todos = todos.map((todo) =>
-      todo.id === change.taskId ? { ...todo, date: change.date } : todo
-    );
-  } else {
-    throw new Error("The assistant proposed an unsupported task change.");
-  }
+  const previousTodos = todos;
+  todos = nextTodos;
   if (!saveTodos()) {
     todos = previousTodos;
     render();
-    throw new Error("Could not save this task change on the device.");
+    throw new Error("Could not save the assistant’s task changes on this device.");
   }
   render();
 }
@@ -795,7 +1570,7 @@ function applyAssistantChange(change) {
 function appendAssistantProposals(changes) {
   const list = document.createElement("div");
   list.className = "chat-proposals";
-  changes.forEach((change) => {
+  const proposals = changes.map((change) => {
     const proposal = document.createElement("section");
     proposal.className = "chat-proposal";
     const summary = document.createElement("p");
@@ -805,42 +1580,22 @@ function appendAssistantProposals(changes) {
     const status = document.createElement("p");
     status.className = "chat-proposal-status";
     status.setAttribute("role", "status");
-    status.textContent = "Waiting for your approval";
-
-    const actions = document.createElement("div");
-    actions.className = "chat-proposal-actions";
-    const approve = document.createElement("button");
-    approve.type = "button";
-    approve.className = "chat-approve-button";
-    approve.textContent = "Approve";
-    approve.addEventListener("click", () => {
-      try {
-        applyAssistantChange(change);
-        status.textContent = "Applied";
-        proposal.classList.add("is-resolved");
-        approve.disabled = true;
-        dismiss.disabled = true;
-      } catch (error) {
-        console.error("Could not apply the proposed task change.", error);
-        status.textContent = error.message;
-      }
-    });
-
-    const dismiss = document.createElement("button");
-    dismiss.type = "button";
-    dismiss.className = "chat-dismiss-button";
-    dismiss.textContent = "Dismiss";
-    dismiss.addEventListener("click", () => {
-      status.textContent = "Dismissed";
-      proposal.classList.add("is-resolved");
-      approve.disabled = true;
-      dismiss.disabled = true;
-    });
-
-    actions.append(approve, dismiss);
-    proposal.append(summary, status, actions);
+    proposal.append(summary, status);
     list.append(proposal);
+    return { proposal, status };
   });
+  try {
+    applyAssistantChanges(changes);
+    proposals.forEach(({ proposal, status }) => {
+      status.textContent = "Applied automatically";
+      proposal.classList.add("is-resolved");
+    });
+  } catch (error) {
+    console.error("Could not automatically apply assistant task changes.", error);
+    proposals.forEach(({ status }) => {
+      status.textContent = `Not applied: ${error.message}`;
+    });
+  }
   chatMessages.append(list);
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
@@ -865,15 +1620,19 @@ async function sendChatMessage(rawMessage) {
       body: JSON.stringify({
         message,
         history: assistantHistory.slice(-8),
-        tasks: [
-          ...todos.filter((todo) => todo.date === selectedDate),
-          ...todos.filter((todo) => todo.date !== selectedDate),
-        ].slice(0, 100).map(({ id, text, completed, date }) => ({
-          id,
-          text,
-          completed,
-          date,
-        })),
+        ...(!authRequired
+          ? {
+              tasks: [
+                ...todos.filter((todo) => todo.date === selectedDate),
+                ...todos.filter((todo) => todo.date !== selectedDate),
+              ].slice(0, 100).map(({ id, text, completed, date }) => ({
+                id,
+                text,
+                completed,
+                date,
+              })),
+            }
+          : {}),
         today: todayKey,
         selectedDate,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -926,13 +1685,23 @@ chatLauncherInput.addEventListener("input", () => {
   if (chatLauncherInput.value.trim()) openChat(chatLauncherInput.value);
 });
 
-chatLauncherInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey) {
+function submitOnEnter(event, targetForm) {
+  if (
+    event.key === "Enter" &&
+    !event.shiftKey &&
+    !event.isComposing
+  ) {
     event.preventDefault();
-    const message = chatLauncherInput.value;
-    openChat(message);
-    if (message.trim()) sendChatMessage(message);
+    targetForm.requestSubmit();
   }
+}
+
+chatLauncherInput.addEventListener("keydown", (event) => {
+  submitOnEnter(event, chatLauncher);
+});
+
+chatInput.addEventListener("keydown", (event) => {
+  submitOnEnter(event, chatForm);
 });
 
 chatLauncher.addEventListener("submit", (event) => {
@@ -945,9 +1714,11 @@ chatLauncher.addEventListener("submit", (event) => {
 chatForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (voiceListening) {
-    voiceStopRequested = true;
-    voiceStatus.textContent = "Stopping voice input. Review the transcript, then send it.";
-    speechRecognition.stop();
+    stopVoiceInput({ status: "Transcribing your recording…" });
+    return;
+  }
+  if (voiceStarting || voiceTranscribing) {
+    voiceStatus.textContent = "Wait for transcription to finish, then send your message.";
     return;
   }
   sendChatMessage(chatInput.value);
@@ -961,7 +1732,8 @@ chatLauncherMicButton.addEventListener("click", () => {
 chatMicButton.addEventListener("click", startVoiceInput);
 chatExitButton.addEventListener("click", () => chatDialog.close());
 chatDialog.addEventListener("close", () => {
-  if (voiceListening) speechRecognition?.abort();
+  if (voiceStarting) voiceCancelRequested = true;
+  if (voiceListening) stopVoiceInput({ discard: true });
   chatLauncherInput.focus();
 });
 
@@ -1001,6 +1773,22 @@ filters.forEach((filter) => {
     });
     render();
   });
+});
+
+homeButton.addEventListener("click", () => {
+  selectedDate = todayKey;
+  activeFilter = "all";
+  filters.forEach((filter) => {
+    const isActive = filter.dataset.filter === activeFilter;
+    filter.classList.toggle("is-active", isActive);
+    filter.setAttribute("aria-pressed", String(isActive));
+  });
+  calendarOpen = false;
+  calendarPanel.hidden = true;
+  calendarToggle.classList.remove("is-active");
+  calendarToggle.setAttribute("aria-expanded", "false");
+  calendarToggle.setAttribute("aria-label", "Open calendar");
+  render();
 });
 
 calendarToggle.addEventListener("click", () => {
@@ -1067,13 +1855,15 @@ function showReminderScreen(focusSettings = false, returnFocus = notificationTog
   taskScreen.hidden = true;
   reminderScreen.hidden = false;
   reminderReturnFocus = returnFocus;
+  reminderScreenTitle.textContent = focusSettings
+    ? "Reminder settings"
+    : "Notifications";
+  reminderDate.hidden = focusSettings;
+  notificationsPanel.hidden = focusSettings;
+  reminderSettingsPanel.hidden = !focusSettings;
   renderReminders();
-  if (focusSettings) reminderSettingsTitle.focus();
+  (focusSettings ? reminderSettingsTitle : reminderScreenTitle).focus();
 }
 
-if (new URLSearchParams(location.search).get("screen") === "reminders") {
-  showReminderScreen();
-}
-
-initializeReminderService();
-render();
+void initializeGoogleSignIn();
+startApp();

@@ -1,32 +1,51 @@
 # Daylight
 
-Daylight is a local to-do list with a calendar, an in-app reminder screen, and scheduled browser push reminders.
+Daylight is a responsive, installable task app with a calendar, scheduled browser reminders, and an AI task assistant.
 
-## Run it
+## Run locally
 
-1. Install Node.js 18 or newer.
+1. Install Node.js 20 or newer.
 2. In this folder, run `npm install`.
 3. Run `npm start`.
 4. Open `http://localhost:3000` (do not open `index.html` directly).
 
-The first server start creates VAPID push keys and a subscription store in `data/`. Keep that folder private and backed up; it is ignored by Git.
+Without `DATABASE_URL`, the server runs in local-only mode: tasks stay in that browser's local storage, and reminders use files under the ignored `data/` directory. This mode is for local development only and is not suitable for public access.
 
-## Set up reminders
+For local AI chat and voice transcription, set `GEMINI_API_KEY` in the same terminal before starting the server. On macOS with zsh, enter `read -s "GEMINI_API_KEY?Gemini API key: "`, paste the key at the hidden prompt, press Return, then enter `export GEMINI_API_KEY` and `npm start`. Google sign-in and sign-out require `DATABASE_URL` and `GOOGLE_CLIENT_ID`; without account storage, the account controls are hidden.
 
-- Open the bell icon beside the calendar to view today’s reminders, or use the gear icon beside it to jump to notification settings.
-- Add one or more reminder times (up to 8 per day).
-- Choose **Enable notifications** and allow browser notifications.
-- The reminder screen shows today’s unfinished tasks. Marking one Done removes it from reminders and leaves it completed in the main to-do list.
+## Prepare a Render deployment
 
-Reminder times use the browser’s current time zone. Keep the local Node server running and the computer awake and connected to send reminders while the app is closed. The app sends only a generic push message; task names stay in browser storage. Browser and operating-system settings can still delay or suppress notifications.
+The root `render.yaml` defines an always-on Node web service and a Render Postgres database in the same region. It deliberately selects paid plans so the reminder scheduler stays online and account data is stored in managed Postgres. Check Render's current [pricing](https://render.com/pricing) before applying the Blueprint. Automatic deploys are disabled until enabled in Render.
 
-The server listens on `127.0.0.1` for local use. Public deployment needs HTTPS and authentication before exposing the API; this local server is not configured for public deployment.
+1. Push this project to a GitHub repository and create a Render **Blueprint** from it. Review the web and database plans and estimated charges before confirming.
+2. In the Render service's environment settings, add the following values:
+   - `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` for an SMTP provider that is authorized to send from your address/domain. The Blueprint defaults to port `587` without implicit TLS; change `SMTP_PORT` and `SMTP_SECURE` if your provider requires different settings.
+   - `VAPID_SUBJECT` as a valid contact URI, for example `mailto:you@example.com`.
+   - `GEMINI_API_KEY` if you want AI chat. Keep it in Render only; do not put it in browser code.
+   - `GOOGLE_CLIENT_ID` to enable Google sign-in. Create a Google OAuth client for a web application and add the exact Daylight HTTPS origin as an authorized JavaScript origin. The client ID is public; no client secret is needed for this sign-in flow.
+   - `APP_ORIGIN` is optional when using Render's generated `RENDER_EXTERNAL_URL`; set it to the exact `https://` origin if you add a custom domain.
+3. Apply the Blueprint and open the resulting HTTPS URL. Create an account and follow the verification email. Password recovery also uses the configured SMTP provider.
+4. Install Daylight from the browser's **Install app** or **Add to Home Screen** option on desktop or mobile.
 
-## Set up Gemini AI chat
+The service starts only in production when `DATABASE_URL` is present. Database tables are initialized idempotently at startup. Email/password credentials use scrypt hashes, Google accounts use verified ID tokens, verification/reset tokens are stored hashed and expire, and sessions use HTTP-only, secure production cookies. Tasks and reminder schedules are user-scoped. Task sync uses a revision check; if another device changes the list at the same time, Daylight pauses sync instead of overwriting the newer account list.
 
-- Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey) and set `GEMINI_API_KEY` in the server process environment before running `npm start`. The server uses `gemini-3.5-flash-lite`. Keep the key on the server; never add it to browser code or commit it.
-- The task assistant uses a low thinking level for faster replies, allows up to 45 seconds for a response, and retries a temporary Gemini 503 once.
-- The free tier has model-specific quotas and availability that can change; check [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing). Google’s [Gemini API terms](https://ai.google.dev/gemini-api/docs/terms) state that unpaid prompts and responses may be used to improve Google products and reviewed by people. Do not send personal, sensitive, or confidential details.
-- Chat messages, recent chat history, the current task list, and selected date/time-zone context are sent to Gemini to generate responses. The assistant can propose adding, editing, completing, or scheduling tasks. Each proposal must be approved individually before it changes the list. It cannot delete tasks or change reminder settings.
-- Microphone dictation uses your browser’s speech-recognition service when supported. That service may process voice input; review the transcript before sending it. The transcript is sent to Gemini only when you press Send.
-- Google’s Gemini API terms describe the service as intended for professional or business developer use, not consumer use. Check that your intended use is eligible, especially before sharing the app with others.
+Google sign-in requires a verified Google email. A first-time Google user gets a Daylight account; a verified Google email that matches an existing Daylight account links to it.
+
+On first sign-in, if the account has no tasks, Daylight offers to import tasks saved in that browser. Local-only tasks remain on their original device until imported. If task changes could not sync, Daylight keeps a device backup and asks whether to restore it or keep the account list.
+
+Open signup shares the server's Gemini quota. The app limits AI use to 6 requests per account per minute, 12 requests per server per minute, and 200 requests per server per day; Gemini's own quotas and availability still apply. Free-tier prompts may be used by Google to improve its products and reviewed by people. Avoid sensitive task information and check Google's current [API terms](https://ai.google.dev/gemini-api/docs/terms) and [pricing](https://ai.google.dev/gemini-api/docs/pricing).
+
+## Notifications and reminders
+
+- Open the bell icon beside the calendar to view today's task notifications. The gear icon opens reminder settings separately.
+- Add up to 8 reminder times and enable browser notifications.
+- Reminder times are stored per account/device. Notifications contain no task names.
+- Keep the Render service running for scheduled notifications. Browser and operating-system settings can delay or suppress them.
+
+## AI assistant
+
+The assistant can add, edit, complete, or schedule tasks when requested, and validated changes are applied automatically. It cannot delete tasks or change reminder settings. Review your request before sending. Chat content and up to 100 of the signed-in user's tasks (prioritizing the selected date) are sent to Gemini when you press Send.
+
+Microphone dictation records up to 60 seconds in the browser and sends the recording to Gemini for transcription when you stop. Review the transcript before sending it. This uses the server's `GEMINI_API_KEY` and counts against its AI request quota.
+
+Run the focused account and password tests with `npm test`.

@@ -1,0 +1,45 @@
+services:
+  - type: web
+    name: daylight
+    runtime: node
+    plan: 0.5c-512mb
+    region: oregon
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: daylight-db
+          property: connectionString
+      - key: DATABASE_SSL
+        value: "true"
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+
+databases:
+  - name: daylight-db
+    databaseName: daylight
+    user: daylight
+    plan: 0.5c-1g
+    region: oregon
+    diskSizeGB: 15
