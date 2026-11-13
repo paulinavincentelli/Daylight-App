@@ -3,8 +3,8 @@
   "short_name": "Daylight",
   "start_url": "/?screen=reminders",
   "display": "standalone",
-  "background_color": "#f6f5f1",
-  "theme_color": "#f6f5f1",
+  "background_color": "#090909",
+  "theme_color": "#090909",
   "icons": [
     {
       "src": "/icon.svg",

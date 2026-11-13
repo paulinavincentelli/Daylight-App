@@ -15,8 +15,10 @@ const calendarGrid = document.querySelector("#calendar-grid");
 const taskScreen = document.querySelector("#task-screen");
 const reminderScreen = document.querySelector("#reminder-screen");
 const notificationToggle = document.querySelector("#notification-toggle");
+const settingsToggle = document.querySelector("#settings-toggle");
 const reminderBadge = document.querySelector("#reminder-badge");
 const backToListButton = document.querySelector("#back-to-list");
+const reminderSettingsTitle = document.querySelector("#reminder-settings-title");
 const reminderList = document.querySelector("#reminder-list");
 const reminderEmpty = document.querySelector("#reminder-empty");
 const reminderTimeForm = document.querySelector("#reminder-time-form");
@@ -24,6 +26,18 @@ const reminderTimeInput = document.querySelector("#reminder-time");
 const reminderTimeList = document.querySelector("#reminder-times");
 const enableRemindersButton = document.querySelector("#enable-reminders");
 const reminderStatus = document.querySelector("#reminder-status");
+const chatLauncher = document.querySelector("#chat-launcher");
+const chatLauncherInput = document.querySelector("#chat-launcher-input");
+const chatDialog = document.querySelector("#chat-dialog");
+const chatExitButton = document.querySelector("#chat-exit");
+const chatMessages = document.querySelector("#chat-messages");
+const chatForm = document.querySelector("#chat-form");
+const chatInput = document.querySelector("#chat-input");
+const chatSubmitButton = document.querySelector("#chat-submit");
+const chatLauncherMicButton = document.querySelector("#chat-launcher-mic");
+const chatMicButton = document.querySelector("#chat-mic");
+const voiceStatus = document.querySelector("#chat-voice-status");
+const clockLabel = document.querySelector("#clock");
 
 let activeFilter = "all";
 let editingTodoId = null;
@@ -33,14 +47,33 @@ let calendarOpen = false;
 let serviceWorkerRegistration = null;
 let remindersEnabled = false;
 let scheduleSyncTimer = null;
+let reminderReturnFocus = notificationToggle;
 let reminderTimes = loadReminderTimes();
 let todos = loadTodos();
+let assistantHistory = [];
+let assistantBusy = false;
+let speechRecognition = null;
+let voiceListening = false;
+let voiceHadResult = false;
+let voiceErrorOccurred = false;
+let voiceStopRequested = false;
+let voiceDraft = "";
 
 document.querySelector("#today").textContent = formatDate(todayKey, {
   weekday: "short",
   month: "short",
   day: "numeric",
 });
+
+function updateClock() {
+  clockLabel.textContent = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date());
+}
+
+updateClock();
+window.setInterval(updateClock, 30_000);
 
 function toDateKey(date) {
   const year = date.getFullYear();
@@ -196,8 +229,10 @@ function saveTodos() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
     queueScheduleSync();
+    return true;
   } catch (error) {
     console.error("Could not save tasks to local storage.", error);
+    return false;
   }
 }
 
@@ -582,6 +617,354 @@ function render() {
   renderReminders();
 }
 
+function openChat(draft = "") {
+  if (!chatDialog.open) chatDialog.showModal();
+  if (draft) {
+    chatInput.value = draft;
+    chatLauncherInput.value = "";
+  }
+  window.requestAnimationFrame(() => chatInput.focus());
+}
+
+function updateVoiceButtons(listening) {
+  [chatLauncherMicButton, chatMicButton].forEach((button) => {
+    button.classList.toggle("is-listening", listening);
+    button.setAttribute("aria-pressed", String(listening));
+    button.setAttribute("aria-label", listening ? "Stop voice input" : "Start voice input");
+    button.title = listening ? "Stop voice input" : "Start voice input";
+  });
+}
+
+function startVoiceInput() {
+  if (voiceListening && speechRecognition) {
+    voiceStopRequested = true;
+    voiceStatus.textContent = "Stopping voice input…";
+    speechRecognition.stop();
+    return;
+  }
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    voiceStatus.textContent = "Voice input isn’t supported by this browser. You can type your message instead.";
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  speechRecognition = recognition;
+  recognition.lang = navigator.language || "en-US";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  voiceDraft = chatInput.value.trim();
+  voiceHadResult = false;
+  voiceErrorOccurred = false;
+  voiceStopRequested = false;
+
+  recognition.onstart = () => {
+    voiceListening = true;
+    chatInput.readOnly = true;
+    updateVoiceButtons(true);
+    voiceStatus.textContent = "Listening… Speak your message.";
+  };
+
+  recognition.onresult = (event) => {
+    const transcript = [...event.results]
+      .map((result) => result[0].transcript)
+      .join("")
+      .trim();
+    if (!transcript) return;
+    voiceHadResult = true;
+    chatInput.value = [voiceDraft, transcript].filter(Boolean).join(" ");
+  };
+
+  recognition.onerror = (event) => {
+    voiceErrorOccurred = true;
+    const messages = {
+      "not-allowed": "Microphone access was denied. Allow it in your browser settings and try again.",
+      "service-not-allowed": "The browser’s speech service is unavailable or not allowed.",
+      "audio-capture": "No microphone was found. Check your microphone and try again.",
+      "no-speech": "No speech was detected. Try again.",
+      network: "The browser’s speech service could not be reached. Check your connection and try again.",
+      aborted: "Voice input stopped.",
+    };
+    voiceStatus.textContent = messages[event.error] || "Voice input failed. You can type your message instead.";
+  };
+
+  recognition.onend = () => {
+    voiceListening = false;
+    chatInput.readOnly = false;
+    updateVoiceButtons(false);
+    speechRecognition = null;
+    if (voiceErrorOccurred) return;
+    voiceStatus.textContent = voiceHadResult
+      ? "Voice input captured. Review it, then send when ready."
+      : voiceStopRequested
+        ? "Voice input stopped."
+        : "No speech was detected. Try again.";
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    speechRecognition = null;
+    voiceErrorOccurred = true;
+    console.error("Could not start voice input.", error);
+    voiceStatus.textContent = "Could not start voice input. Check your microphone permission and try again.";
+  }
+}
+
+function appendChatMessage(role, content) {
+  chatMessages.querySelector(".chat-welcome")?.remove();
+  const message = document.createElement("article");
+  message.className = `chat-message chat-message-${role}`;
+  const label = document.createElement("span");
+  label.className = "chat-message-label";
+  label.textContent = role === "user" ? "You" : "Daylight AI";
+  const text = document.createElement("p");
+  text.className = "chat-message-text";
+  text.textContent = content;
+  message.append(label, text);
+  chatMessages.append(message);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return message;
+}
+
+function describeAssistantChange(change) {
+  if (change.action === "add") {
+    return `Add “${change.text}” for ${formatDate(change.date, {
+      month: "short",
+      day: "numeric",
+    })}`;
+  }
+  const task = todos.find((item) => item.id === change.taskId);
+  if (!task) return "This task is no longer available.";
+  if (change.action === "edit") return `Rename “${task.text}” to “${change.text}”`;
+  if (change.action === "complete") return `Mark “${task.text}” as done`;
+  return `Schedule “${task.text}” for ${formatDate(change.date, {
+    month: "short",
+    day: "numeric",
+  })}`;
+}
+
+function applyAssistantChange(change) {
+  const previousTodos = todos;
+  const currentTask = change.taskId
+    ? todos.find((todo) => todo.id === change.taskId)
+    : null;
+  if (change.taskId && !currentTask) {
+    throw new Error("This task no longer exists. Ask the assistant to try again.");
+  }
+  if (
+    currentTask &&
+    (currentTask.text !== change.expectedText ||
+      currentTask.date !== change.expectedDate ||
+      currentTask.completed !== change.expectedCompleted)
+  ) {
+    throw new Error("This task changed since the proposal. Ask the assistant to try again.");
+  }
+
+  if (change.action === "add") {
+    todos = [{
+      id: crypto.randomUUID(),
+      text: change.text,
+      completed: false,
+      date: change.date,
+    }, ...todos];
+  } else if (change.action === "edit") {
+    todos = todos.map((todo) =>
+      todo.id === change.taskId ? { ...todo, text: change.text } : todo
+    );
+  } else if (change.action === "complete") {
+    todos = todos.map((todo) =>
+      todo.id === change.taskId ? { ...todo, completed: true } : todo
+    );
+  } else if (change.action === "schedule") {
+    todos = todos.map((todo) =>
+      todo.id === change.taskId ? { ...todo, date: change.date } : todo
+    );
+  } else {
+    throw new Error("The assistant proposed an unsupported task change.");
+  }
+  if (!saveTodos()) {
+    todos = previousTodos;
+    render();
+    throw new Error("Could not save this task change on the device.");
+  }
+  render();
+}
+
+function appendAssistantProposals(changes) {
+  const list = document.createElement("div");
+  list.className = "chat-proposals";
+  changes.forEach((change) => {
+    const proposal = document.createElement("section");
+    proposal.className = "chat-proposal";
+    const summary = document.createElement("p");
+    summary.className = "chat-proposal-summary";
+    summary.textContent = describeAssistantChange(change);
+
+    const status = document.createElement("p");
+    status.className = "chat-proposal-status";
+    status.setAttribute("role", "status");
+    status.textContent = "Waiting for your approval";
+
+    const actions = document.createElement("div");
+    actions.className = "chat-proposal-actions";
+    const approve = document.createElement("button");
+    approve.type = "button";
+    approve.className = "chat-approve-button";
+    approve.textContent = "Approve";
+    approve.addEventListener("click", () => {
+      try {
+        applyAssistantChange(change);
+        status.textContent = "Applied";
+        proposal.classList.add("is-resolved");
+        approve.disabled = true;
+        dismiss.disabled = true;
+      } catch (error) {
+        console.error("Could not apply the proposed task change.", error);
+        status.textContent = error.message;
+      }
+    });
+
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "chat-dismiss-button";
+    dismiss.textContent = "Dismiss";
+    dismiss.addEventListener("click", () => {
+      status.textContent = "Dismissed";
+      proposal.classList.add("is-resolved");
+      approve.disabled = true;
+      dismiss.disabled = true;
+    });
+
+    actions.append(approve, dismiss);
+    proposal.append(summary, status, actions);
+    list.append(proposal);
+  });
+  chatMessages.append(list);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendChatMessage(rawMessage) {
+  const message = rawMessage.trim();
+  if (!message || assistantBusy) return;
+
+  chatInput.value = "";
+  appendChatMessage("user", message);
+  const pendingMessage = appendChatMessage("assistant", "Thinking…");
+  pendingMessage.classList.add("is-pending");
+  assistantBusy = true;
+  chatInput.disabled = true;
+  chatSubmitButton.disabled = true;
+  chatMicButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/assistant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        history: assistantHistory.slice(-8),
+        tasks: [
+          ...todos.filter((todo) => todo.date === selectedDate),
+          ...todos.filter((todo) => todo.date !== selectedDate),
+        ].slice(0, 100).map(({ id, text, completed, date }) => ({
+          id,
+          text,
+          completed,
+          date,
+        })),
+        today: todayKey,
+        selectedDate,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      }),
+    });
+    const responseText = await response.text();
+    let result;
+    try {
+      result = JSON.parse(responseText);
+    } catch {
+      if (!response.ok) {
+        throw new Error(`AI service returned HTTP ${response.status} (${response.statusText}).`);
+      }
+      throw new Error("AI service returned an invalid JSON response.");
+    }
+    if (!response.ok) {
+      throw new Error(result.error || `AI service returned ${response.status}.`);
+    }
+    if (
+      typeof result.reply !== "string" ||
+      !Array.isArray(result.changes) ||
+      result.changes.length > 8
+    ) {
+      throw new Error("AI service returned an invalid task proposal.");
+    }
+
+    assistantHistory.push(
+      { role: "user", content: message },
+      { role: "assistant", content: result.reply }
+    );
+    assistantHistory = assistantHistory.slice(-8);
+    pendingMessage.remove();
+    appendChatMessage("assistant", result.reply);
+    if (result.changes.length) appendAssistantProposals(result.changes);
+  } catch (error) {
+    console.error("Could not get an AI response.", error);
+    pendingMessage.classList.remove("is-pending");
+    pendingMessage.querySelector(".chat-message-text").textContent =
+      `I couldn’t get a response: ${error.message}`;
+  } finally {
+    assistantBusy = false;
+    chatInput.disabled = false;
+    chatSubmitButton.disabled = false;
+    chatMicButton.disabled = false;
+    chatInput.focus();
+  }
+}
+
+chatLauncherInput.addEventListener("input", () => {
+  if (chatLauncherInput.value.trim()) openChat(chatLauncherInput.value);
+});
+
+chatLauncherInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    const message = chatLauncherInput.value;
+    openChat(message);
+    if (message.trim()) sendChatMessage(message);
+  }
+});
+
+chatLauncher.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const message = chatLauncherInput.value;
+  openChat(message);
+  if (message.trim()) sendChatMessage(message);
+});
+
+chatForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (voiceListening) {
+    voiceStopRequested = true;
+    voiceStatus.textContent = "Stopping voice input. Review the transcript, then send it.";
+    speechRecognition.stop();
+    return;
+  }
+  sendChatMessage(chatInput.value);
+});
+
+chatLauncherMicButton.addEventListener("click", () => {
+  openChat(chatLauncherInput.value);
+  startVoiceInput();
+});
+
+chatMicButton.addEventListener("click", startVoiceInput);
+chatExitButton.addEventListener("click", () => chatDialog.close());
+chatDialog.addEventListener("close", () => {
+  if (voiceListening) speechRecognition?.abort();
+  chatLauncherInput.focus();
+});
+
 form.addEventListener("submit", (event) => {
   event.preventDefault();
   const text = input.value.trim();
@@ -665,22 +1048,27 @@ reminderTimeForm.addEventListener("submit", (event) => {
 });
 
 notificationToggle.addEventListener("click", () => {
-  taskScreen.hidden = true;
-  reminderScreen.hidden = false;
-  renderReminders();
+  showReminderScreen(false, notificationToggle);
+});
+
+settingsToggle.addEventListener("click", () => {
+  showReminderScreen(true, settingsToggle);
 });
 
 backToListButton.addEventListener("click", () => {
   reminderScreen.hidden = true;
   taskScreen.hidden = false;
+  reminderReturnFocus.focus();
 });
 
 enableRemindersButton.addEventListener("click", enableOrDisableReminders);
 
-function showReminderScreen() {
+function showReminderScreen(focusSettings = false, returnFocus = notificationToggle) {
   taskScreen.hidden = true;
   reminderScreen.hidden = false;
+  reminderReturnFocus = returnFocus;
   renderReminders();
+  if (focusSettings) reminderSettingsTitle.focus();
 }
 
 if (new URLSearchParams(location.search).get("screen") === "reminders") {

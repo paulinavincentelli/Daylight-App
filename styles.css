@@ -111,17 +111,6 @@ button {
   text-decoration: none;
 }
 
-.brand-mark {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  border-radius: 9px;
-  background: #e4ebdf;
-  color: var(--green-dark);
-  font-size: 19px;
-}
-
 .date-label {
   color: var(--muted);
   font-size: 12px;
@@ -526,7 +515,8 @@ h1 span {
 
 .filter,
 .clear-button,
-.calendar-toggle {
+.calendar-toggle,
+.settings-toggle {
   padding: 7px 9px;
   border: 0;
   border-radius: 6px;
@@ -539,7 +529,8 @@ h1 span {
 
 .filter:hover,
 .clear-button:hover,
-.calendar-toggle:hover {
+.calendar-toggle:hover,
+.settings-toggle:hover {
   color: var(--green-dark);
 }
 
@@ -563,7 +554,8 @@ h1 span {
   border-radius: 7px;
 }
 
-.calendar-toggle svg {
+.calendar-toggle svg,
+.settings-toggle svg {
   width: 18px;
   height: 18px;
 }
@@ -588,7 +580,21 @@ h1 span {
   transition: color 150ms ease, background 150ms ease;
 }
 
+.settings-toggle {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border-radius: 7px;
+}
+
 .notification-toggle:hover {
+  background: #edf2eb;
+  color: var(--green-dark);
+}
+
+.settings-toggle:hover {
   background: #edf2eb;
   color: var(--green-dark);
 }
@@ -968,5 +974,814 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* Dark, high-contrast palette sampled from the supplied mobile design. */
+:root {
+  color-scheme: dark;
+  --ink: #f5f2fb;
+  --muted: #aaa5b7;
+  --green: #687f1c;
+  --green-dark: #526715;
+  --paper: #111014;
+  --line: rgba(255, 255, 255, 0.16);
+  --wash: #090909;
+  --lavender: #b9aaf1;
+  --violet: #7058df;
+  --deep-purple: #351d80;
+  --lime: #687f1c;
+  --star-blue: #79c9ea;
+  --star-mint: #63e5ae;
+  --soft-lime: #d6df99;
+  --blue-violet: #7863e8;
+}
+
+body {
+  background: var(--wash);
+  color: var(--ink);
+  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+}
+
+.app {
+  width: min(100% - 24px, 600px);
+  padding-top: 28px;
+}
+
+.topbar {
+  margin-bottom: 0;
+}
+
+.brand {
+  gap: 10px;
+  color: #fff;
+}
+
+.brand-logo {
+  display: block;
+  width: 222px;
+  max-width: min(58vw, 222px);
+  height: auto;
+  flex: 0 1 auto;
+}
+
+.date-label {
+  color: #aaa5b7;
+}
+
+.date-time {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.date-label {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.time-label {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.todo-card {
+  overflow: visible;
+  padding: clamp(150px, 21vh, 184px) clamp(12px, 6vw, 48px) 25px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.add-form {
+  position: relative;
+  gap: 0;
+  margin-bottom: 27px;
+}
+
+.add-form input {
+  height: 73px;
+  padding: 0 75px 0 18px;
+  border: 1px solid rgba(185, 243, 74, 0.3);
+  border-radius: 17px;
+  background: var(--lime);
+  color: #11120b;
+  font-size: 14px;
+}
+
+.add-form input::placeholder {
+  color: rgba(17, 18, 11, 0.72);
+}
+
+.add-form input:focus {
+  border-color: #b9f34a;
+  box-shadow: 0 0 0 3px rgba(185, 243, 74, 0.28);
+}
+
+.add-button {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 55px;
+  height: 55px;
+  flex-basis: 55px;
+  border-radius: 12px;
+  background: var(--blue-violet);
+  color: #fff;
+}
+
+.add-button:hover {
+  background: var(--star-blue);
+  color: #10131b;
+}
+
+.calendar-panel,
+.reminder-settings {
+  border-color: rgba(185, 170, 241, 0.24);
+  border-radius: 16px;
+  background: #15131a;
+}
+
+.calendar-month,
+.list-heading h2,
+.reminder-settings h3 {
+  color: #fff;
+}
+
+.calendar-day {
+  color: #e8e4f0;
+}
+
+.calendar-day:hover:not(:disabled),
+.filter.is-active,
+.calendar-toggle.is-active,
+.notification-toggle:hover,
+.settings-toggle:hover,
+.edit-button:hover,
+.edit-action:hover {
+  background: rgba(185, 170, 241, 0.16);
+  color: #d4caff;
+}
+
+.calendar-day.is-today {
+  box-shadow: inset 0 0 0 1px var(--lavender);
+  color: #d4caff;
+}
+
+.calendar-day.is-selected {
+  background: var(--violet);
+  color: #fff;
+}
+
+.calendar-day.has-tasks::after {
+  background: var(--lime);
+}
+
+.calendar-day:disabled {
+  color: #686371;
+}
+
+.calendar-panel {
+  margin-top: -12px;
+}
+
+.calendar-toggle,
+.notification-toggle,
+.settings-toggle {
+  color: #aaa5b7;
+}
+
+.list-heading {
+  margin-bottom: 10px;
+}
+
+.list-heading h2 {
+  font-size: 14px;
+}
+
+.task-count {
+  color: #c1bbcf;
+  font-size: 12px;
+}
+
+.todo-item {
+  min-height: 73px;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 17px;
+  color: #14121a;
+  animation: appear 180ms ease-out;
+}
+
+.todo-item:nth-child(6n + 1) {
+  background: var(--lavender);
+}
+
+.todo-item:nth-child(6n + 2) {
+  background: var(--violet);
+  color: #fff;
+}
+
+.todo-item:nth-child(6n + 3) {
+  background: var(--deep-purple);
+  color: #fff;
+}
+
+.todo-item:nth-child(6n + 4) {
+  background: var(--star-blue);
+}
+
+.todo-item:nth-child(6n + 5) {
+  background: var(--star-mint);
+}
+
+.todo-item:nth-child(6n) {
+  background: var(--soft-lime);
+}
+
+.todo-toggle {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
+  border-color: currentColor;
+  color: inherit;
+}
+
+.todo-item.is-complete .todo-toggle {
+  border-color: currentColor;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.todo-text {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.todo-item.is-complete .todo-text {
+  color: inherit;
+  opacity: 0.68;
+  text-decoration-color: currentColor;
+}
+
+.edit-button,
+.delete-button,
+.edit-action {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  border-radius: 10px;
+  color: inherit;
+  opacity: 0.82;
+}
+
+.todo-item:hover .edit-button,
+.todo-item:hover .delete-button,
+.edit-button:focus-visible,
+.delete-button:focus-visible {
+  opacity: 1;
+}
+
+.edit-button:hover,
+.edit-action:hover {
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+}
+
+.delete-button:hover {
+  background: rgba(80, 14, 30, 0.18);
+  color: inherit;
+}
+
+.todo-edit-input {
+  border-color: rgba(0, 0, 0, 0.35);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #14121a;
+}
+
+.todo-edit-input:focus {
+  box-shadow: 0 0 0 3px rgba(20, 18, 26, 0.18);
+}
+
+.empty-state {
+  color: #aaa5b7;
+}
+
+.empty-icon {
+  color: var(--lavender);
+}
+
+.chat-launcher {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0 0 15px;
+  padding: 11px 12px 9px;
+  border: 1.5px solid #914bf4;
+  border-radius: 14px;
+  background: #281477;
+  box-shadow: 0 0 0 1px rgba(145, 75, 244, 0.16);
+}
+
+.chat-launcher textarea,
+.chat-form textarea {
+  width: 100%;
+  min-height: 28px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #fff;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-launcher textarea::placeholder,
+.chat-form textarea::placeholder {
+  color: #c4b8df;
+}
+
+.chat-launcher:focus-within,
+.chat-form:focus-within {
+  box-shadow: 0 0 0 3px rgba(121, 201, 234, 0.28);
+}
+
+.chat-launcher-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #d3c8eb;
+  font-size: 10px;
+}
+
+.chat-launcher-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+}
+
+.chat-mic-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(185, 170, 241, 0.42);
+  border-radius: 50%;
+  background: rgba(121, 201, 234, 0.14);
+  color: #a9dff4;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.chat-mic-button:hover {
+  background: rgba(121, 201, 234, 0.27);
+}
+
+.chat-mic-button.is-listening {
+  border-color: #79c9ea;
+  background: #79c9ea;
+  color: #10131b;
+}
+
+.chat-mic-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.chat-mic-button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.chat-send-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--soft-lime);
+  color: #17141e;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.chat-send-button:hover {
+  background: var(--star-blue);
+  transform: translateY(-1px);
+}
+
+.chat-send-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.chat-send-button svg {
+  width: 19px;
+  height: 19px;
+}
+
+.chat-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-width: none;
+  max-height: min(820px, calc(100dvh - 40px));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid rgba(185, 170, 241, 0.4);
+  border-radius: 22px;
+  background: #100d18;
+  color: #f5f2fb;
+  box-shadow: 0 28px 100px rgba(0, 0, 0, 0.6);
+}
+
+.chat-dialog::backdrop {
+  background: rgba(5, 4, 9, 0.72);
+  -webkit-backdrop-filter: blur(13px) brightness(0.52);
+  backdrop-filter: blur(13px) brightness(0.52);
+}
+
+.chat-window {
+  display: flex;
+  height: min(78vh, 760px);
+  min-height: 400px;
+  flex-direction: column;
+  padding: 22px;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 17px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.chat-eyebrow {
+  margin: 0 0 5px;
+  color: #b9aaf1;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+}
+
+.chat-header h2 {
+  margin: 0;
+  color: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 24px;
+  font-weight: 500;
+}
+
+.chat-exit-button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgba(185, 170, 241, 0.34);
+  border-radius: 10px;
+  background: transparent;
+  color: #e4ddf5;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.chat-exit-button:hover {
+  background: rgba(185, 170, 241, 0.12);
+}
+
+.chat-messages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding: 18px 2px;
+}
+
+.chat-welcome {
+  max-width: 430px;
+  margin: auto 0;
+  color: #c6bfd1;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.chat-message {
+  max-width: min(88%, 500px);
+  padding: 12px 14px;
+  border: 1px solid rgba(185, 170, 241, 0.18);
+  border-radius: 14px;
+  background: #1b1725;
+}
+
+.chat-message-user {
+  align-self: flex-end;
+  border-color: rgba(121, 201, 234, 0.26);
+  background: #17243b;
+}
+
+.chat-message-label {
+  display: block;
+  margin-bottom: 5px;
+  color: #a9dff4;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.chat-message-assistant .chat-message-label {
+  color: #c7b9ff;
+}
+
+.chat-message-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #f5f2fb;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.chat-message.is-pending .chat-message-text {
+  color: #b9aaf1;
+}
+
+.chat-proposals {
+  display: flex;
+  max-width: min(92%, 540px);
+  align-self: flex-start;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.chat-proposal {
+  padding: 12px;
+  border: 1px solid rgba(121, 201, 234, 0.32);
+  border-radius: 12px;
+  background: #171d2a;
+}
+
+.chat-proposal-summary {
+  margin: 0;
+  color: #f5f2fb;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.chat-proposal-status {
+  margin: 7px 0 0;
+  color: #aaa5b7;
+  font-size: 10px;
+}
+
+.chat-proposal.is-resolved {
+  opacity: 0.72;
+}
+
+.chat-proposal-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.chat-approve-button,
+.chat-dismiss-button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chat-approve-button {
+  background: var(--blue-violet);
+  color: #fff;
+}
+
+.chat-approve-button:hover {
+  background: var(--star-blue);
+  color: #10131b;
+}
+
+.chat-dismiss-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d4caff;
+}
+
+.chat-approve-button:disabled,
+.chat-dismiss-button:disabled {
+  cursor: default;
+}
+
+.chat-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid rgba(145, 75, 244, 0.8);
+  border-radius: 14px;
+  background: #21145b;
+}
+
+.chat-voice-status {
+  min-height: 1em;
+  margin: 8px 0 0;
+  color: #a9dff4;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.chat-form textarea {
+  min-height: 52px;
+  max-height: 140px;
+}
+
+.chat-form textarea:focus-visible {
+  outline: 0;
+}
+
+.chat-privacy-note {
+  margin: 5px 0 0;
+  color: #928ba1;
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.list-footer {
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.filter,
+.clear-button,
+.calendar-toggle,
+.notification-toggle,
+.settings-toggle {
+  min-height: 40px;
+  border-radius: 10px;
+  color: #aaa5b7;
+  font-size: 12px;
+}
+
+.filter.is-active,
+.calendar-toggle.is-active,
+.settings-toggle:focus-visible {
+  background: rgba(121, 201, 234, 0.16);
+  color: #9cddf5;
+}
+
+.clear-button:disabled {
+  color: #686371;
+}
+
+#reminder-settings-title:focus {
+  outline: 2px solid #79c9ea;
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+
+.back-button {
+  min-height: 40px;
+  color: #d4caff;
+}
+
+.reminder-heading h2 {
+  color: #fff;
+}
+
+.reminder-heading p,
+.reminder-settings > p,
+.reminder-time-form > label,
+#reminder-status,
+.privacy-note,
+.save-note {
+  color: #aaa5b7;
+}
+
+.permission-button,
+.time-add-button,
+.reminder-done-button {
+  min-height: 40px;
+  border-radius: 10px;
+  background: var(--blue-violet);
+  color: #fff;
+  font-size: 12px;
+}
+
+.permission-button:hover,
+.time-add-button:hover,
+.reminder-done-button:hover {
+  background: var(--star-blue);
+  color: #10131b;
+}
+
+.reminder-time-form input {
+  height: 40px;
+  border-color: rgba(185, 170, 241, 0.3);
+  border-radius: 9px;
+  background: #0c0b0e;
+  color: #fff;
+}
+
+.reminder-times li {
+  background: rgba(185, 170, 241, 0.16);
+  color: #d4caff;
+}
+
+.remove-time-button {
+  color: #d4caff;
+}
+
+.reminder-item {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.save-note span {
+  color: #b9f34a;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #d4caff;
+  outline-offset: 3px;
+}
+
+@media (max-width: 520px) {
+  .app {
+    width: calc(100% - 24px);
+    padding-top: 28px;
+  }
+
+  .todo-card {
+    padding: clamp(150px, 21vh, 184px) clamp(12px, 6vw, 24px) 20px;
+    border-radius: 0;
+  }
+
+  .list-footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .filter-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .chat-launcher-footer {
+    gap: 6px;
+    font-size: 9px;
+  }
+
+  .chat-launcher-actions {
+    gap: 6px;
+  }
+
+  .chat-dialog {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    border-radius: 18px;
+  }
+
+  .chat-window {
+    height: calc(100dvh - 18px);
+    min-height: 0;
+    padding: 16px;
+  }
+
+  .chat-header h2 {
+    font-size: 21px;
+  }
+}
+
+@media (max-width: 380px) {
+  .todo-item {
+    gap: 8px;
+    padding-right: 9px;
+    padding-left: 11px;
+  }
+
+  .edit-button,
+  .delete-button {
+    width: 32px;
+    height: 36px;
+    flex-basis: 32px;
   }
 }
