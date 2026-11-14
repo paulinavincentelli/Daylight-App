@@ -311,3 +311,66 @@ test("Google sign-in creates a verified account and links by verified email", as
     { status: 401 }
   );
 });
+
+test("Google redirect sign-in verifies GIS CSRF tokens and creates a session", async () => {
+  const pool = new MemoryPool([]);
+  const api = createAccountApi({
+    pool,
+    origin: "https://daylight-app-gxqd.onrender.com",
+    verifyGoogleCredential: async (credential) => {
+      assert.equal(credential, "valid-google-id-token");
+      return {
+        sub: "google-redirect-user",
+        email: "redirect@example.com",
+        email_verified: true,
+      };
+    },
+    sendJson(response, status, value) {
+      response.writeHead(status, {});
+      response.end(JSON.stringify(value));
+    },
+  });
+  const csrfToken = "csrf-token-123";
+  const incoming = Readable.from([
+    Buffer.from(
+      new URLSearchParams({
+        credential: "valid-google-id-token",
+        g_csrf_token: csrfToken,
+      }).toString()
+    ),
+  ]);
+  incoming.method = "POST";
+  incoming.headers = {
+    cookie: `g_csrf_token=${csrfToken}`,
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  incoming.socket = { remoteAddress: "127.0.0.1" };
+  const response = new MemoryResponse();
+
+  await api.handle(incoming, response, "/api/auth/google/redirect");
+
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.Location, "https://daylight-app-gxqd.onrender.com");
+  assert.match(response.headers["Set-Cookie"], /^daylight_session=/);
+  assert.equal(pool.users[0].email, "redirect@example.com");
+  assert.equal(pool.users[0].google_sub, "google-redirect-user");
+
+  const invalid = Readable.from([
+    Buffer.from(
+      new URLSearchParams({
+        credential: "valid-google-id-token",
+        g_csrf_token: "different-token",
+      }).toString()
+    ),
+  ]);
+  invalid.method = "POST";
+  invalid.headers = {
+    cookie: `g_csrf_token=${csrfToken}`,
+    "content-type": "application/x-www-form-urlencoded",
+  };
+  invalid.socket = { remoteAddress: "127.0.0.1" };
+  await assert.rejects(
+    api.handle(invalid, new MemoryResponse(), "/api/auth/google/redirect"),
+    { status: 400 }
+  );
+});

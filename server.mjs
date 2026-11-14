@@ -967,15 +967,23 @@ async function serve(request, response) {
         allowedOrigins.add(publicUrl.origin);
       }
     }
+    const isGoogleRedirectCallback =
+      requestUrl.pathname === "/api/auth/google/redirect" &&
+      request.method === "POST";
+    const requestOrigin = request.headers.origin;
+    const originAllowed =
+      allowedOrigins.has(requestOrigin) ||
+      (isGoogleRedirectCallback &&
+        (!requestOrigin || requestOrigin === "https://accounts.google.com"));
     if (!allowedHosts.has(request.headers.host)) {
       sendJson(response, 403, { error: "Request host is not allowed." });
       return;
     }
-    if (request.headers.origin && !allowedOrigins.has(request.headers.origin)) {
+    if (requestOrigin && !originAllowed) {
       sendJson(response, 403, { error: "Request origin is not allowed." });
       return;
     }
-    if (request.method !== "GET" && !allowedOrigins.has(request.headers.origin)) {
+    if (request.method !== "GET" && !originAllowed) {
       sendJson(response, 403, { error: "Request origin is not allowed." });
       return;
     }
@@ -1089,6 +1097,24 @@ async function start() {
 
   const server = createServer((request, response) => {
     serve(request, response).catch((error) => {
+      const requestUrl = new URL(request.url, "http://127.0.0.1");
+      if (
+        request.method === "POST" &&
+        requestUrl.pathname === "/api/auth/google/redirect" &&
+        error.status &&
+        error.status < 500 &&
+        appOrigin
+      ) {
+        const redirectUrl = new URL(appOrigin);
+        redirectUrl.searchParams.set("google_signin", "failed");
+        response.writeHead(303, {
+          Location: redirectUrl.href,
+          "Cache-Control": "no-store",
+          "Referrer-Policy": "no-referrer",
+        });
+        response.end();
+        return;
+      }
       console.error("Request failed.", error);
       if (!response.headersSent) {
         sendJson(response, error.status || 500, {

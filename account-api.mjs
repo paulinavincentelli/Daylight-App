@@ -39,6 +39,21 @@ async function readJson(request, maxBytes = 16_384) {
   return body;
 }
 
+async function readUrlEncoded(request, maxBytes = 16_384) {
+  const contentType = request.headers["content-type"] || "";
+  if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(contentType)) {
+    throw requestError(415, "Google returned an invalid sign-in response.");
+  }
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw requestError(413, "Request body is too large.");
+    chunks.push(chunk);
+  }
+  return new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+}
+
 function clientKey(request) {
   const forwarded = request.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.trim()) {
@@ -85,12 +100,22 @@ function validPassword(value) {
   return value;
 }
 
-function readCookie(request, name) {
+function readCookieValue(request, name) {
   const cookies = request.headers.cookie?.split(";") || [];
-  const value = cookies
+  const rawValue = cookies
     .map((cookie) => cookie.trim())
     .find((cookie) => cookie.startsWith(`${name}=`))
     ?.slice(name.length + 1);
+  if (!rawValue) return "";
+  try {
+    return decodeURIComponent(rawValue);
+  } catch {
+    return "";
+  }
+}
+
+function readCookie(request, name) {
+  const value = readCookieValue(request, name);
   return value && /^[A-Za-z0-9_-]{43}$/.test(value) ? value : "";
 }
 
@@ -441,6 +466,23 @@ export function createAccountApi({
   sendJson,
   verifyGoogleCredential,
 }) {
+  async function getGoogleUser(credential) {
+    if (!verifyGoogleCredential) {
+      throw requestError(503, "Google sign-in is not configured.");
+    }
+    if (typeof credential !== "string" || !credential || credential.length > 8192) {
+      throw requestError(400, "A valid Google credential is required.");
+    }
+    let claims;
+    try {
+      claims = await verifyGoogleCredential(credential);
+    } catch (error) {
+      console.warn("Google credential verification failed.", error.message);
+      throw requestError(401, "Google sign-in could not be verified. Please try again.");
+    }
+    return findOrCreateGoogleUser(pool, claims);
+  }
+
   async function requireUser(request) {
     const user = await resolveSessionUser(request, pool);
     if (!user) throw requestError(401, "Please sign in to continue.");
@@ -456,26 +498,36 @@ export function createAccountApi({
 
     if (pathname === "/api/auth/google" && request.method === "POST") {
       rateLimit(request, "google-login", 10, 15 * 60 * 1000);
-      if (!verifyGoogleCredential) {
-        throw requestError(503, "Google sign-in is not configured.");
-      }
       const body = await readJson(request);
-      if (
-        typeof body.credential !== "string" ||
-        body.credential.length > 8192
-      ) {
-        throw requestError(400, "A valid Google credential is required.");
-      }
-      let claims;
-      try {
-        claims = await verifyGoogleCredential(body.credential);
-      } catch (error) {
-        console.warn("Google credential verification failed.", error.message);
-        throw requestError(401, "Google sign-in could not be verified. Please try again.");
-      }
-      const user = await findOrCreateGoogleUser(pool, claims);
+      const user = await getGoogleUser(body.credential);
       await createSession(pool, response, user.id);
       sendJson(response, 200, { user: { id: user.id, email: user.email } });
+      return true;
+    }
+
+    if (pathname === "/api/auth/google/redirect" && request.method === "POST") {
+      rateLimit(request, "google-login", 10, 15 * 60 * 1000);
+      const fields = await readUrlEncoded(request);
+      const csrfCookie = readCookieValue(request, "g_csrf_token");
+      const csrfValues = fields.getAll("g_csrf_token");
+      const credentials = fields.getAll("credential");
+      if (
+        !csrfCookie ||
+        csrfCookie.length > 256 ||
+        csrfValues.length !== 1 ||
+        csrfValues[0] !== csrfCookie ||
+        credentials.length !== 1
+      ) {
+        throw requestError(400, "Google sign-in could not be verified. Please try again.");
+      }
+      const user = await getGoogleUser(credentials[0]);
+      await createSession(pool, response, user.id);
+      response.writeHead(303, {
+        Location: origin,
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+      });
+      response.end();
       return true;
     }
 

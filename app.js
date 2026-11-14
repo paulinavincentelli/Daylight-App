@@ -115,6 +115,13 @@ let taskSyncPending = 0;
 let taskSyncConflict = false;
 let localTasksToImport = [];
 let googleSignInConfigured = false;
+const googleRedirectFailed = (() => {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get("google_signin") !== "failed") return false;
+  url.searchParams.delete("google_signin");
+  history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  return true;
+})();
 
 document.querySelector("#today").textContent = formatDate(todayKey, {
   weekday: "short",
@@ -495,6 +502,23 @@ async function submitGoogleCredential(response) {
   }
 }
 
+function shouldUseGoogleRedirect() {
+  const isIOS =
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone =
+    navigator.standalone === true ||
+    window.matchMedia?.("(display-mode: standalone)")?.matches === true;
+  return isIOS || isStandalone;
+}
+
+function showGoogleRedirectError() {
+  if (googleRedirectFailed) {
+    googleSignInStatus.textContent =
+      "Google sign-in could not be completed. Please try again.";
+  }
+}
+
 async function initializeGoogleSignIn() {
   let googleClientId = "";
   try {
@@ -519,32 +543,28 @@ async function initializeGoogleSignIn() {
       throw new Error("Google sign-in is unavailable in this browser.");
     }
 
+    const useRedirect = shouldUseGoogleRedirect();
     window.google.accounts.id.initialize({
       client_id: googleClientId,
-      callback: (response) => {
-        void submitGoogleCredential(response);
-      },
+      ux_mode: useRedirect ? "redirect" : "popup",
+      ...(useRedirect
+        ? { login_uri: new URL("/api/auth/google/redirect", location.origin).href }
+        : {
+            callback: (response) => {
+              void submitGoogleCredential(response);
+            },
+          }),
     });
-    googleSignInButton.onclick = () => {
-      googleSignInStatus.textContent = "";
-      try {
-        window.google.accounts.id.prompt((notification) => {
-          if (
-            notification?.isNotDisplayed?.() ||
-            notification?.isSkippedMoment?.()
-          ) {
-            googleSignInStatus.textContent =
-              "Google sign-in could not be opened. Please try again.";
-          }
-        });
-      } catch (error) {
-        console.error("Could not start Google sign-in.", error);
-        googleSignInStatus.textContent =
-          "Google sign-in could not be started. Please try again.";
-      }
-    };
-    googleSignInButton.disabled = false;
+    window.google.accounts.id.renderButton(googleSignInButton, {
+      type: "standard",
+      theme: "outline",
+      size: "large",
+      text: "continue_with",
+      shape: "pill",
+      width: Math.min(380, Math.max(240, window.innerWidth - 80)),
+    });
     googleSignIn.hidden = authScreen.hidden;
+    showGoogleRedirectError();
   } catch (error) {
     console.error("Could not initialize Google sign-in.", error);
     if (googleClientId) {
@@ -768,6 +788,7 @@ async function startApp() {
       return;
     }
     showSignInScreen();
+    showGoogleRedirectError();
   } catch (error) {
     if (location.protocol === "file:") {
       authRequired = false;
@@ -776,6 +797,7 @@ async function startApp() {
     }
     console.error("Could not check the account session.", error);
     showSignInScreen(`Could not connect to Daylight: ${error.message}`);
+    showGoogleRedirectError();
   }
 }
 
