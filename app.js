@@ -57,6 +57,7 @@ const authSubmitButton = document.querySelector("#auth-submit");
 const authStatus = document.querySelector("#auth-status");
 const googleSignIn = document.querySelector("#google-signin");
 const googleSignInButton = document.querySelector("#google-signin-button");
+const googleSignInPreviewButton = document.querySelector("#google-signin-preview-button");
 const googleSignInStatus = document.querySelector("#google-signin-status");
 const accountLoadPanel = document.querySelector("#account-load-panel");
 const accountLoadStatus = document.querySelector("#account-load-status");
@@ -78,6 +79,9 @@ const localImportMessage = document.querySelector("#local-import-message");
 const importLocalTasksButton = document.querySelector("#import-local-tasks");
 const skipLocalImportButton = document.querySelector("#skip-local-import");
 const saveNote = document.querySelector(".save-note");
+const isLocalSignInPreview =
+  ["localhost", "127.0.0.1", "::1", "[::1]"].includes(location.hostname) &&
+  new URLSearchParams(location.search).get("preview") === "signin";
 
 let activeFilter = "all";
 let editingTodoId = null;
@@ -728,6 +732,9 @@ showSignUpButton.addEventListener("click", () => setAuthMode("register"));
 forgotPasswordButton.addEventListener("click", requestPasswordReset);
 resendVerificationButton.addEventListener("click", resendVerificationEmail);
 signOutButton.addEventListener("click", signOut);
+googleSignInPreviewButton.addEventListener("click", () => {
+  showAuthMessage("Google sign-in is disabled in this preview.");
+});
 syncReloadButton.addEventListener("click", reloadAccountTasks);
 retryAccountLoadButton.addEventListener("click", () => {
   if (signedInUser) showSignedInApp(signedInUser);
@@ -758,6 +765,14 @@ document.addEventListener("visibilitychange", () => {
 });
 
 async function startApp() {
+  if (isLocalSignInPreview) {
+    showSignInScreen();
+    googleSignIn.hidden = false;
+    googleSignInButton.hidden = true;
+    googleSignInPreviewButton.hidden = false;
+    return;
+  }
+
   try {
     const result = await apiRequest("/api/auth/me");
     authRequired = result.authRequired;
@@ -806,6 +821,10 @@ async function startApp() {
 
 async function submitAuthForm(event) {
   event.preventDefault();
+  if (isLocalSignInPreview) {
+    showAuthMessage("Sign-in is disabled in this preview.");
+    return;
+  }
   const email = authEmailInput.value.trim();
   const password = authPasswordInput.value;
   if (authMode === "register" && password !== authPasswordConfirm.value) {
@@ -849,6 +868,10 @@ async function submitPasswordReset(event) {
 }
 
 async function requestPasswordReset() {
+  if (isLocalSignInPreview) {
+    showAuthMessage("Password reset is disabled in this preview.");
+    return;
+  }
   const email = authEmailInput.value.trim();
   if (!email) {
     showAuthMessage("Enter your email address first.");
@@ -1933,5 +1956,5 @@ function showReminderScreen(focusSettings = false, returnFocus = notificationTog
   (focusSettings ? reminderSettingsTitle : reminderScreenTitle).focus();
 }
 
-void initializeGoogleSignIn();
+if (!isLocalSignInPreview) void initializeGoogleSignIn();
 startApp();
