@@ -57,6 +57,7 @@ const authSubmitButton = document.querySelector("#auth-submit");
 const authStatus = document.querySelector("#auth-status");
 const googleSignIn = document.querySelector("#google-signin");
 const googleSignInButton = document.querySelector("#google-signin-button");
+const googleRedirectSignInButton = document.querySelector("#google-redirect-signin-button");
 const googleSignInStatus = document.querySelector("#google-signin-status");
 const accountLoadPanel = document.querySelector("#account-load-panel");
 const accountLoadStatus = document.querySelector("#account-load-status");
@@ -555,14 +556,40 @@ async function initializeGoogleSignIn() {
             },
           }),
     });
-    window.google.accounts.id.renderButton(googleSignInButton, {
-      type: "standard",
-      theme: "outline",
-      size: "large",
-      text: "continue_with",
-      shape: "pill",
-      width: Math.min(380, Math.max(240, window.innerWidth - 80)),
-    });
+    if (useRedirect) {
+      googleSignInButton.hidden = true;
+      googleRedirectSignInButton.hidden = false;
+      window.google.accounts.id.renderButton(googleRedirectSignInButton, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "pill",
+        width: Math.min(380, Math.max(240, window.innerWidth - 80)),
+      });
+    } else {
+      googleRedirectSignInButton.hidden = true;
+      googleSignInButton.hidden = false;
+      googleSignInButton.disabled = false;
+      googleSignInButton.onclick = () => {
+        googleSignInStatus.textContent = "";
+        try {
+          window.google.accounts.id.prompt((notification) => {
+            if (
+              notification?.isNotDisplayed?.() ||
+              notification?.isSkippedMoment?.()
+            ) {
+              googleSignInStatus.textContent =
+                "Google sign-in could not be opened. Please try again.";
+            }
+          });
+        } catch (error) {
+          console.error("Could not start Google sign-in.", error);
+          googleSignInStatus.textContent =
+            "Google sign-in could not be started. Please try again.";
+        }
+      };
+    }
     googleSignIn.hidden = authScreen.hidden;
     showGoogleRedirectError();
   } catch (error) {
