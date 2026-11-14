@@ -1313,6 +1313,14 @@ body {
   font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
 }
 
+body.chat-open {
+  position: fixed;
+  right: 0;
+  left: 0;
+  width: 100%;
+  overflow: hidden;
+}
+
 .app {
   width: min(100% - 24px, 600px);
   padding-top: 28px;
@@ -1783,6 +1791,9 @@ body {
   flex-direction: column;
   gap: 14px;
   overflow: auto;
+  min-height: 0;
+  min-width: 0;
+  overscroll-behavior: contain;
   padding: 18px 2px;
 }
 
@@ -2033,15 +2044,57 @@ a:focus-visible {
   }
 
   .chat-dialog {
-    width: calc(100vw - 16px);
-    max-height: calc(100dvh - 16px);
-    border-radius: 18px;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    max-width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    margin: 0;
+    overflow-x: hidden;
+    border-radius: 0;
+    box-sizing: border-box;
   }
 
   .chat-window {
-    height: calc(100dvh - 18px);
+    width: 100%;
+    height: 100%;
     min-height: 0;
-    padding: 16px;
+    min-width: 0;
+    overflow-x: hidden;
+    padding:
+      max(16px, env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-right))
+      max(16px, env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+  }
+
+  .chat-header,
+  .chat-form,
+  .chat-voice-status,
+  .chat-privacy-note {
+    flex-shrink: 0;
+  }
+
+  .chat-form {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .chat-form textarea {
+    min-width: 0;
+    flex: 1 1 0;
+    font-size: 16px;
+  }
+
+  .chat-mic-button,
+  .chat-send-button {
+    flex-shrink: 0;
+  }
+
+  .chat-privacy-note {
+    overflow-wrap: anywhere;
   }
 
   .chat-header h2 {

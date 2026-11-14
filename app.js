@@ -81,6 +81,7 @@ const saveNote = document.querySelector(".save-note");
 
 let activeFilter = "all";
 let editingTodoId = null;
+let chatLockedScrollY = 0;
 const todayKey = toDateKey(new Date());
 let selectedDate = todayKey;
 let calendarOpen = false;
@@ -1254,7 +1255,12 @@ function render() {
 }
 
 function openChat(draft = "") {
-  if (!chatDialog.open) chatDialog.showModal();
+  if (!chatDialog.open) {
+    chatLockedScrollY = window.scrollY;
+    document.body.classList.add("chat-open");
+    document.body.style.top = `-${chatLockedScrollY}px`;
+    chatDialog.showModal();
+  }
   if (draft) {
     chatInput.value = draft;
     chatLauncherInput.value = "";
@@ -1766,6 +1772,9 @@ chatLauncherMicButton.addEventListener("click", () => {
 chatMicButton.addEventListener("click", startVoiceInput);
 chatExitButton.addEventListener("click", () => chatDialog.close());
 chatDialog.addEventListener("close", () => {
+  document.body.classList.remove("chat-open");
+  document.body.style.top = "";
+  window.scrollTo(0, chatLockedScrollY);
   if (voiceStarting) voiceCancelRequested = true;
   if (voiceListening) stopVoiceInput({ discard: true });
   chatLauncherInput.focus();
