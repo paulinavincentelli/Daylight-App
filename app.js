@@ -1403,7 +1403,7 @@ function voiceStartErrorMessage(error) {
 function createVoiceRecorder(stream) {
   const mimeType =
     typeof MediaRecorder.isTypeSupported === "function"
-      ? ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) =>
+      ? ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find((type) =>
           MediaRecorder.isTypeSupported(type)
         )
       : null;
