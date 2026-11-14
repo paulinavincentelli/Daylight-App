@@ -566,6 +566,7 @@ async function initializeGoogleSignIn() {
       size: "large",
       text: "continue_with",
       shape: "pill",
+      logo_alignment: "center",
       width: Math.min(380, Math.max(240, window.innerWidth - 80)),
     });
     googleSignInButton.hidden = false;
