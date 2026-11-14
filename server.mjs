@@ -955,10 +955,17 @@ async function serve(request, response) {
   const requestUrl = new URL(request.url, "http://127.0.0.1");
   if (requestUrl.pathname.startsWith("/api/")) {
     const localHosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
-    const allowedHosts = new Set(localHosts);
+    const renderOrigin = "https://daylight-app-gxqd.onrender.com";
+    const allowedHosts = new Set([
+      ...localHosts,
+      new URL(renderOrigin).host,
+    ]);
     const allowedOrigins = new Set([
       `http://localhost:${port}`,
       `http://127.0.0.1:${port}`,
+      "http://localhost:3000",
+      "http://127.0.0.1:3000",
+      renderOrigin,
     ]);
     for (const configuredOrigin of [appOrigin, process.env.RENDER_EXTERNAL_URL]) {
       if (configuredOrigin) {
