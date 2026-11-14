@@ -523,14 +523,25 @@ async function initializeGoogleSignIn() {
         void submitGoogleCredential(response);
       },
     });
-    googleSignInButton.replaceChildren();
-    window.google.accounts.id.renderButton(googleSignInButton, {
-      theme: "outline",
-      size: "large",
-      text: "continue_with",
-      shape: "pill",
-      width: Math.max(240, Math.min(320, document.documentElement.clientWidth - 48)),
-    });
+    googleSignInButton.onclick = () => {
+      googleSignInStatus.textContent = "";
+      try {
+        window.google.accounts.id.prompt((notification) => {
+          if (
+            notification?.isNotDisplayed?.() ||
+            notification?.isSkippedMoment?.()
+          ) {
+            googleSignInStatus.textContent =
+              "Google sign-in could not be opened. Please try again.";
+          }
+        });
+      } catch (error) {
+        console.error("Could not start Google sign-in.", error);
+        googleSignInStatus.textContent =
+          "Google sign-in could not be started. Please try again.";
+      }
+    };
+    googleSignInButton.disabled = false;
     googleSignIn.hidden = authScreen.hidden;
   } catch (error) {
     console.error("Could not initialize Google sign-in.", error);
