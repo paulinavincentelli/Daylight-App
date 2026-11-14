@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import {
   createToken,
   hashPassword,
@@ -11,7 +11,17 @@ const SESSION_COOKIE = "daylight_session";
 const SESSION_DAYS = 7;
 const authAttempts = new Map();
 let dummyPasswordHash;
-let transporter;
+let resend;
+
+function getResend() {
+  if (!resend) {
+    if (!process.env.RESEND_API_KEY) {
+      throw requestError(503, "Email delivery is not configured on the server.");
+    }
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
+}
 
 function requestError(status, message) {
   const error = new Error(message);
@@ -145,54 +155,31 @@ async function createSession(pool, response, userId) {
   setSessionCookie(response, token);
 }
 
-function getTransporter() {
-  const host = process.env.SMTP_HOST;
-  const from = process.env.SMTP_FROM;
-  if (!host || !from) {
-    throw requestError(503, "Email delivery is not configured on the server.");
-  }
-  if (!transporter) {
-    const port = Number(process.env.SMTP_PORT || 587);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) {
-      throw new Error("SMTP_PORT must be a valid port number.");
-    }
-    const secure = process.env.SMTP_SECURE === "true";
-    const username = process.env.SMTP_USER;
-    const password = process.env.SMTP_PASSWORD;
-    if (Boolean(username) !== Boolean(password)) {
-      throw new Error("Set both SMTP_USER and SMTP_PASSWORD, or neither.");
-    }
-    console.info("Creating SMTP transporter", { host, port, secure, hasAuth: !!username });
-    transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      requireTLS: !secure,
-      auth: username ? { user: username, pass: password } : undefined,
-    });
-  }
-  return { transporter, from };
-}
-
 async function sendAccountEmail(to, purpose, token, origin) {
-  const { transporter: mailer, from } = getTransporter();
+  const resendClient = getResend();
+  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
   const isVerification = purpose === "verify";
   const subject = isVerification
     ? "Verify your Daylight account"
     : "Reset your Daylight password";
   const url = `${origin}/#${isVerification ? "verify" : "reset"}=${token}`;
   const action = isVerification ? "Verify email" : "Reset password";
-  console.info("Sending account email", { to, from, subject, purpose, url });
+  console.info("Sending account email via Resend", { to, from, subject, purpose, url });
   try {
-    const info = await mailer.sendMail({
+    const { data, error } = await resendClient.emails.send({
       from,
       to,
       subject,
       text: `${action}: ${url}\n\nIf you did not request this, you can ignore this email.`,
       html: `<p><a href="${url}">${action}</a></p><p>If you did not request this, you can ignore this email.</p>`,
     });
-    console.info("Account email sent", { messageId: info.messageId, response: info.response });
+    if (error) {
+      console.error("Resend API error", { to, from, purpose, error });
+      throw requestError(503, "The email could not be sent. Please try again later.");
+    }
+    console.info("Account email sent via Resend", { messageId: data?.id });
   } catch (error) {
+    if (error.status) throw error;
     console.error("Could not send account email.", { to, from, purpose, error: error.message, stack: error.stack });
     throw requestError(503, "The email could not be sent. Please try again later.");
   }

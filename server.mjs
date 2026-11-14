@@ -1104,22 +1104,8 @@ async function start() {
     ) {
       throw new Error("APP_ORIGIN must use HTTPS in production.");
     }
-    if (isProduction && (!process.env.SMTP_HOST || !process.env.SMTP_FROM)) {
-      throw new Error("SMTP_HOST and SMTP_FROM are required for verified accounts.");
-    }
-    if (
-      isProduction &&
-      (!Number.isInteger(Number(process.env.SMTP_PORT || 587)) ||
-        Number(process.env.SMTP_PORT || 587) < 1 ||
-        Number(process.env.SMTP_PORT || 587) > 65535)
-    ) {
-      throw new Error("SMTP_PORT must be a valid port number.");
-    }
-    if (
-      isProduction &&
-      Boolean(process.env.SMTP_USER) !== Boolean(process.env.SMTP_PASSWORD)
-    ) {
-      throw new Error("Set both SMTP_USER and SMTP_PASSWORD, or neither.");
+    if (isProduction && !process.env.RESEND_API_KEY) {
+      throw new Error("RESEND_API_KEY is required for verified accounts.");
     }
     if (
       isProduction &&
