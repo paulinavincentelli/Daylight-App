@@ -1072,9 +1072,13 @@ a:focus-visible {
 
 #google-signin-button {
   display: flex;
+  align-items: center;
   justify-content: center;
   width: 100%;
   min-height: 50px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #fff;
 }
 
 #google-signin-button[hidden] {
