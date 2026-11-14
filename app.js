@@ -557,8 +557,10 @@ async function initializeGoogleSignIn() {
           }),
     });
     if (useRedirect) {
+      googleSignInButton.replaceChildren();
       googleSignInButton.hidden = true;
       googleRedirectSignInButton.hidden = false;
+      googleRedirectSignInButton.replaceChildren();
       window.google.accounts.id.renderButton(googleRedirectSignInButton, {
         type: "standard",
         theme: "outline",
