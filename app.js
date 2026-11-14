@@ -1376,6 +1376,9 @@ async function finishVoiceRecording(recorder) {
 }
 
 function voiceStartErrorMessage(error) {
+  if (error?.name === "NotSupportedError") {
+    return "This browser doesn't support a compatible audio format. You can type your message instead.";
+  }
   if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
     return "Microphone access was denied. Allow it in your browser settings and try again.";
   }
@@ -1403,6 +1406,20 @@ async function startVoiceInput() {
     return;
   }
 
+  if (typeof MediaRecorder.isTypeSupported !== "function") {
+    voiceStatus.textContent = "This browser can't check audio recording formats. You can type your message instead.";
+    return;
+  }
+  const mimeType = [
+    "audio/mp4",
+    "audio/webm;codecs=opus",
+    "audio/webm",
+  ].find((type) => MediaRecorder.isTypeSupported(type));
+  if (!mimeType) {
+    voiceStatus.textContent = "This browser doesn't support a compatible audio format. You can type your message instead.";
+    return;
+  }
+
   voiceStarting = true;
   voiceCancelRequested = false;
   voiceStatus.textContent = "Waiting for microphone access…";
@@ -1420,15 +1437,7 @@ async function startVoiceInput() {
       return;
     }
 
-    const preferredType = [
-      "audio/webm;codecs=opus",
-      "audio/mp4",
-      "audio/ogg;codecs=opus",
-    ].find((type) => MediaRecorder.isTypeSupported?.(type));
-    const recorder = new MediaRecorder(
-      stream,
-      preferredType ? { mimeType: preferredType } : undefined
-    );
+    const recorder = new MediaRecorder(stream, { mimeType });
     voiceDraft = chatInput.value.trim();
     voiceChunks = [];
     voiceChunkBytes = 0;
