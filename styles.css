@@ -1190,9 +1190,6 @@ a:focus-visible {
 }
 
 .account-controls {
-  position: absolute;
-  top: 0;
-  right: 0;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1305,6 +1302,7 @@ a:focus-visible {
   --star-mint: #63e5ae;
   --soft-lime: #d6df99;
   --blue-violet: #7863e8;
+  --content-gutter: clamp(12px, 6vw, 48px);
 }
 
 body {
@@ -1327,7 +1325,11 @@ body.chat-open {
 }
 
 .topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 0;
+  padding-inline: var(--content-gutter);
 }
 
 .brand {
@@ -1374,7 +1376,7 @@ body.chat-open {
 
 .todo-card {
   overflow: visible;
-  padding: clamp(112px, 16vh, 136px) clamp(12px, 6vw, 48px) 25px;
+  padding: clamp(112px, 16vh, 136px) var(--content-gutter) 25px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -2013,13 +2015,17 @@ a:focus-visible {
 }
 
 @media (max-width: 520px) {
+  :root {
+    --content-gutter: clamp(12px, 6vw, 24px);
+  }
+
   .app {
     width: calc(100% - 24px);
     padding-top: 28px;
   }
 
   .todo-card {
-    padding: clamp(112px, 16vh, 136px) clamp(12px, 6vw, 24px) 20px;
+    padding: clamp(112px, 16vh, 136px) var(--content-gutter) 20px;
     border-radius: 0;
   }
 
