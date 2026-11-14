@@ -59,6 +59,29 @@ test("accepts a binary audio file from a multipart upload", async () => {
   });
 });
 
+test("accepts browser audio MIME types with quoted and additional parameters", async () => {
+  let requestOptions;
+  await transcribeVoiceAudio(
+    {
+      audio: Buffer.from("sample audio"),
+      mimeType: 'audio/webm;codecs="opus";rate=48000',
+    },
+    "test-key",
+    async (_url, options) => {
+      requestOptions = options;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "Turn on the lights." }] } }],
+        }),
+      };
+    }
+  );
+  const requestBody = JSON.parse(requestOptions.body);
+  assert.equal(requestBody.contents[0].parts[1].inlineData.mimeType, "audio/webm");
+});
+
 test("rejects unsupported audio without contacting Gemini", async () => {
   let requested = false;
   await assert.rejects(

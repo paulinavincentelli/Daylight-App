@@ -3,8 +3,17 @@ const MAX_BASE64_LENGTH = Math.ceil(MAX_VOICE_AUDIO_BYTES / 3) * 4;
 export const MAX_VOICE_REQUEST_BYTES = MAX_BASE64_LENGTH + 16_384;
 export const MAX_VOICE_MULTIPART_REQUEST_BYTES = MAX_VOICE_AUDIO_BYTES + 16_384;
 
-const audioMimeTypePattern =
-  /^audio\/(?:webm|mp4|ogg|wav|mpeg|mp3|aac|flac|x-wav)(?:;codecs=[a-z0-9._-]+)?$/i;
+const supportedAudioMimeTypes = new Set([
+  "audio/webm",
+  "audio/mp4",
+  "audio/ogg",
+  "audio/wav",
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/aac",
+  "audio/flac",
+  "audio/x-wav",
+]);
 
 function requestError(status, message) {
   const error = new Error(message);
@@ -37,11 +46,11 @@ function validateAudioPayload(body) {
   } else {
     throw requestError(400, "Provide a valid audio recording.");
   }
-  if (
-    typeof body.mimeType !== "string" ||
-    body.mimeType.length > 100 ||
-    !audioMimeTypePattern.test(body.mimeType)
-  ) {
+  if (typeof body.mimeType !== "string" || body.mimeType.length > 100) {
+    throw requestError(400, "This audio format is not supported.");
+  }
+  const mimeType = body.mimeType.split(";")[0].trim().toLowerCase();
+  if (!supportedAudioMimeTypes.has(mimeType)) {
     throw requestError(400, "This audio format is not supported.");
   }
 
@@ -53,7 +62,7 @@ function validateAudioPayload(body) {
   }
   return {
     audio,
-    mimeType: body.mimeType.split(";")[0].trim().toLowerCase(),
+    mimeType,
   };
 }
 
