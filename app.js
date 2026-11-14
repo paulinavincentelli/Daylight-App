@@ -525,11 +525,11 @@ async function initializeGoogleSignIn() {
     });
     googleSignInButton.replaceChildren();
     window.google.accounts.id.renderButton(googleSignInButton, {
-      theme: "filled_black",
+      theme: "outline",
       size: "large",
       text: "continue_with",
       shape: "pill",
-      width: Math.max(240, Math.min(380, document.documentElement.clientWidth - 48)),
+      width: Math.max(240, Math.min(320, document.documentElement.clientWidth - 48)),
     });
     googleSignIn.hidden = authScreen.hidden;
   } catch (error) {
