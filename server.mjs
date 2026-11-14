@@ -15,6 +15,23 @@ import {
 } from "./voice-transcription.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
+
+const cors = (req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "https://daylight-app-gxqd.onrender.com");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  next();
+};
+
+const authenticate = (req, res, next) => {
+  if (req.url.startsWith("/api/") && !req.url.startsWith("/api/auth/")) {
+    // Add your authentication logic here
+    console.log("Authentication required");
+    return sendJson(res, 401, { error: "Please sign in to continue." });
+  }
+  next();
+};
 const dataDirectory = join(root, "data");
 const vapidPath = join(dataDirectory, "vapid-keys.json");
 const subscriptionsPath = join(dataDirectory, "subscriptions.json");
@@ -982,16 +999,19 @@ async function serve(request, response) {
       allowedOrigins.has(requestOrigin) ||
       (isGoogleRedirectCallback &&
         (!requestOrigin || requestOrigin === "https://accounts.google.com"));
+    const originError = `Request origin "${requestOrigin?.slice(0, 200) || "(missing)"}" is not allowed for ${request.method} ${requestUrl.pathname}.`;
     if (!allowedHosts.has(request.headers.host)) {
       sendJson(response, 403, { error: "Request host is not allowed." });
       return;
     }
     if (requestOrigin && !originAllowed) {
-      sendJson(response, 403, { error: "Request origin is not allowed." });
+      console.warn(originError);
+      sendJson(response, 403, { error: originError });
       return;
     }
     if (request.method !== "GET" && !originAllowed) {
-      sendJson(response, 403, { error: "Request origin is not allowed." });
+      console.warn(originError);
+      sendJson(response, 403, { error: originError });
       return;
     }
     await handleApi(request, response, requestUrl.pathname);
@@ -1123,6 +1143,48 @@ async function start() {
         return;
       }
       console.error("Request failed.", error);
+const server = createServer((request, response) => {
+  if (request.url === "/" || request.url.startsWith("/static/")) {
+    serve(request, response).catch((error) => {
+      console.error("Request failed.", error);
+      if (!response.headersSent) {
+        sendJson(response, error.status || 500, {
+          error: error.status ? error.message : "The server could not complete the request.",
+        });
+      } else {
+        response.destroy();
+      }
+    });
+  } else if (request.url.startsWith("/api/")) {
+    cors(request, response, () => {
+      authenticate(request, response, () => {
+        serve(request, response).catch((error) => {
+          console.error("Request failed.", error);
+          if (!response.headersSent) {
+            sendJson(response, error.status || 500, {
+              error: error.status ? error.message : "The server could not complete the request.",
+            });
+          } else {
+            response.destroy();
+          }
+        });
+      });
+    });
+  } else {
+    cors(request, response, () => {
+      serve(request, response).catch((error) => {
+        console.error("Request failed.", error);
+        if (!response.headersSent) {
+          sendJson(response, error.status || 500, {
+            error: error.status ? error.message : "The server could not complete the request.",
+          });
+        } else {
+          response.destroy();
+        }
+      });
+    });
+  }
+});
       if (!response.headersSent) {
         sendJson(response, error.status || 500, {
           error: error.status ? error.message : "The server could not complete the request.",
