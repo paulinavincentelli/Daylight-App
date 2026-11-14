@@ -39,13 +39,6 @@ const cors = (req, res, next) => {
   }
   next();
 };
-
-function requireAuth(req, res, next) {
-  if (req.url.startsWith("/api/") && !req.url.startsWith("/api/auth/")) {
-    return sendJson(res, 401, { error: "Please sign in to continue." });
-  }
-  next();
-}
 const dataDirectory = join(root, "data");
 const vapidPath = join(dataDirectory, "vapid-keys.json");
 const subscriptionsPath = join(dataDirectory, "subscriptions.json");
@@ -1193,9 +1186,7 @@ async function start() {
         }
 
         if (isApiRoute) {
-          requireAuth(request, response, async () => {
-            await handleApi(request, response, pathname);
-          });
+          await handleApi(request, response, pathname);
           return;
         }
 
