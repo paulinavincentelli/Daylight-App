@@ -162,6 +162,7 @@ function getTransporter() {
     if (Boolean(username) !== Boolean(password)) {
       throw new Error("Set both SMTP_USER and SMTP_PASSWORD, or neither.");
     }
+    console.info("Creating SMTP transporter", { host, port, secure, hasAuth: !!username });
     transporter = nodemailer.createTransport({
       host,
       port,
@@ -181,16 +182,18 @@ async function sendAccountEmail(to, purpose, token, origin) {
     : "Reset your Daylight password";
   const url = `${origin}/#${isVerification ? "verify" : "reset"}=${token}`;
   const action = isVerification ? "Verify email" : "Reset password";
+  console.info("Sending account email", { to, from, subject, purpose, url });
   try {
-    await mailer.sendMail({
+    const info = await mailer.sendMail({
       from,
       to,
       subject,
       text: `${action}: ${url}\n\nIf you did not request this, you can ignore this email.`,
       html: `<p><a href="${url}">${action}</a></p><p>If you did not request this, you can ignore this email.</p>`,
     });
+    console.info("Account email sent", { messageId: info.messageId, response: info.response });
   } catch (error) {
-    console.error("Could not send account email.", error);
+    console.error("Could not send account email.", { to, from, purpose, error: error.message, stack: error.stack });
     throw requestError(503, "The email could not be sent. Please try again later.");
   }
 }
