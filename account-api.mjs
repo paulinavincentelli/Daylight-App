@@ -8,7 +8,7 @@ import {
 } from "./auth-utils.mjs";
 
 const SESSION_COOKIE = "daylight_session";
-const SESSION_DAYS = 30;
+const SESSION_DAYS = 7;
 const authAttempts = new Map();
 let dummyPasswordHash;
 let transporter;

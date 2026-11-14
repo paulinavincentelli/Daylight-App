@@ -16,22 +16,36 @@ import {
 
 const root = dirname(fileURLToPath(import.meta.url));
 
-const cors = (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://daylight-app-gxqd.onrender.com");
-  res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  next();
-};
+const PRODUCTION_ORIGIN = "https://daylight-app-gxqd.onrender.com";
+const DEV_ORIGIN = "http://localhost:5173";
+const ALLOWED_ORIGINS = new Set([PRODUCTION_ORIGIN, DEV_ORIGIN]);
 
-const authenticate = (req, res, next) => {
-  if (req.url.startsWith("/api/") && !req.url.startsWith("/api/auth/")) {
-    // Add your authentication logic here
-    console.log("Authentication required");
-    return sendJson(res, 401, { error: "Please sign in to continue." });
+function isAllowedOrigin(origin) {
+  return ALLOWED_ORIGINS.has(origin);
+}
+
+const cors = (req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  }
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
   }
   next();
 };
+
+function requireAuth(req, res, next) {
+  if (req.url.startsWith("/api/") && !req.url.startsWith("/api/auth/")) {
+    return sendJson(res, 401, { error: "Please sign in to continue." });
+  }
+  next();
+}
 const dataDirectory = join(root, "data");
 const vapidPath = join(dataDirectory, "vapid-keys.json");
 const subscriptionsPath = join(dataDirectory, "subscriptions.json");
@@ -1019,7 +1033,35 @@ async function serve(request, response) {
   }
 
   const file = files.get(requestUrl.pathname);
-  if (!file || request.method !== "GET" && request.method !== "HEAD") {
+  if (!file) {
+    if (request.method === "GET" || request.method === "HEAD") {
+      const indexFile = files.get("/");
+      if (indexFile) {
+        const [filename, contentType] = indexFile;
+        const content = await readFile(join(root, filename));
+        response.writeHead(200, {
+          "Content-Type": contentType,
+          "Cache-Control": "no-store",
+          "X-Content-Type-Options": "nosniff",
+          "Referrer-Policy": "no-referrer",
+          "X-Frame-Options": "DENY",
+          "Permissions-Policy": "camera=(), geolocation=(), microphone=(self)",
+          ...(isProduction
+            ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" }
+            : {}),
+          "Content-Security-Policy":
+            "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        });
+        response.end(content);
+        return;
+      }
+    }
+    response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    response.end("Not found");
+    return;
+  }
+
+  if (request.method !== "GET" && request.method !== "HEAD") {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found");
     return;
@@ -1123,56 +1165,60 @@ async function start() {
   );
 
   const server = createServer((request, response) => {
-    serve(request, response).catch((error) => {
-      const requestUrl = new URL(request.url, "http://127.0.0.1");
-      if (
-        request.method === "POST" &&
-        requestUrl.pathname === "/api/auth/google/redirect" &&
-        error.status &&
-        error.status < 500 &&
-        appOrigin
-      ) {
-        const redirectUrl = new URL(appOrigin);
-        redirectUrl.searchParams.set("google_signin", "failed");
-        response.writeHead(303, {
-          Location: redirectUrl.href,
-          "Cache-Control": "no-store",
-          "Referrer-Policy": "no-referrer",
-        });
-        response.end();
-        return;
+    const requestUrl = new URL(request.url, `http://${request.headers.host || `localhost:${port}`}`);
+    const pathname = requestUrl.pathname;
+
+    const isApiRoute = pathname.startsWith("/api/");
+    const isAuthRoute = pathname.startsWith("/api/auth/");
+
+    const runCors = () => {
+      if (isApiRoute) {
+        cors(request, response, () => {});
       }
-      console.error("Request failed.", error);
-const server = createServer((request, response) => {
-  if (request.url === "/" || request.url.startsWith("/static/")) {
-    serve(request, response).catch((error) => {
-      console.error("Request failed.", error);
-      if (!response.headersSent) {
-        sendJson(response, error.status || 500, {
-          error: error.status ? error.message : "The server could not complete the request.",
-        });
-      } else {
-        response.destroy();
-      }
-    });
-  } else if (request.url.startsWith("/api/")) {
-    cors(request, response, () => {
-      authenticate(request, response, () => {
-        serve(request, response).catch((error) => {
-          console.error("Request failed.", error);
-          if (!response.headersSent) {
-            sendJson(response, error.status || 500, {
-              error: error.status ? error.message : "The server could not complete the request.",
-            });
-          } else {
-            response.destroy();
-          }
-        });
-      });
-    });
-  } else {
-    cors(request, response, () => {
-      serve(request, response).catch((error) => {
+    };
+
+    const handleRequest = async () => {
+      try {
+        runCors();
+
+        if (request.method === "OPTIONS" && isApiRoute) {
+          response.writeHead(204);
+          response.end();
+          return;
+        }
+
+        if (isAuthRoute) {
+          await handleApi(request, response, pathname);
+          return;
+        }
+
+        if (isApiRoute) {
+          requireAuth(request, response, async () => {
+            await handleApi(request, response, pathname);
+          });
+          return;
+        }
+
+        await serve(request, response);
+      } catch (error) {
+        const requestUrl = new URL(request.url, `http://${request.headers.host || `localhost:${port}`}`);
+        if (
+          request.method === "POST" &&
+          requestUrl.pathname === "/api/auth/google/redirect" &&
+          error.status &&
+          error.status < 500 &&
+          appOrigin
+        ) {
+          const redirectUrl = new URL(appOrigin);
+          redirectUrl.searchParams.set("google_signin", "failed");
+          response.writeHead(303, {
+            Location: redirectUrl.href,
+            "Cache-Control": "no-store",
+            "Referrer-Policy": "no-referrer",
+          });
+          response.end();
+          return;
+        }
         console.error("Request failed.", error);
         if (!response.headersSent) {
           sendJson(response, error.status || 500, {
@@ -1181,18 +1227,10 @@ const server = createServer((request, response) => {
         } else {
           response.destroy();
         }
-      });
-    });
-  }
-});
-      if (!response.headersSent) {
-        sendJson(response, error.status || 500, {
-          error: error.status ? error.message : "The server could not complete the request.",
-        });
-      } else {
-        response.destroy();
       }
-    });
+    };
+
+    handleRequest();
   });
 
   server.listen(port, isProduction ? "0.0.0.0" : "127.0.0.1", () => {
