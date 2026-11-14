@@ -1080,19 +1080,24 @@ a:focus-visible {
   padding: 0 16px;
   border: 1px solid #dadce0;
   border-radius: 9999px;
-  background: #ffffff;
+  background-color: #ffffff;
   color: #1f1f1f;
+  opacity: 1;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
   transition: box-shadow 150ms ease;
 }
 
-#google-signin-button svg {
+#google-signin-button .google-signin-icon {
   display: block;
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+}
+
+#google-signin-button[hidden] {
+  display: none;
 }
 
 #google-signin-button:hover:not(:disabled) {
@@ -1106,7 +1111,8 @@ a:focus-visible {
 
 #google-signin-button:disabled {
   cursor: wait;
-  opacity: 0.7;
+  background-color: #ffffff;
+  opacity: 1;
 }
 
 #google-redirect-signin-button {
