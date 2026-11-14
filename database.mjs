@@ -3,13 +3,9 @@ import pg from "pg";
 const { Pool } = pg;
 
 export function createDatabase(connectionString) {
-  const ssl =
-    process.env.DATABASE_SSL === "true"
-      ? { rejectUnauthorized: false }
-      : undefined;
   return new Pool({
     connectionString,
-    ssl,
+    ssl: { rejectUnauthorized: false },
     max: 10,
     connectionTimeoutMillis: 10_000,
     idleTimeoutMillis: 30_000,
