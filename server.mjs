@@ -1011,7 +1011,7 @@ async function serve(request, response) {
       ? { "Strict-Transport-Security": "max-age=31536000; includeSubDomains" }
       : {}),
     "Content-Security-Policy":
-      "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self'; img-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+      "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; worker-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
   });
   response.end(request.method === "HEAD" ? undefined : content);
 }
