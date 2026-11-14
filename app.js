@@ -1391,6 +1391,24 @@ function voiceStartErrorMessage(error) {
   return "Could not start voice recording. Check your microphone permission and try again.";
 }
 
+function createVoiceRecorder(stream) {
+  const mimeType =
+    typeof MediaRecorder.isTypeSupported === "function"
+      ? ["audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find((type) =>
+          MediaRecorder.isTypeSupported(type)
+        )
+      : null;
+
+  if (mimeType) {
+    try {
+      return new MediaRecorder(stream, { mimeType });
+    } catch (error) {
+      if (error?.name !== "NotSupportedError") throw error;
+    }
+  }
+  return new MediaRecorder(stream);
+}
+
 async function startVoiceInput() {
   if (voiceListening && mediaRecorder) {
     stopVoiceInput({ status: "Transcribing your recording…" });
@@ -1403,20 +1421,6 @@ async function startVoiceInput() {
   if (voiceTranscribing || assistantBusy) return;
   if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
     voiceStatus.textContent = "Voice recording isn’t supported by this browser. You can type your message instead.";
-    return;
-  }
-
-  if (typeof MediaRecorder.isTypeSupported !== "function") {
-    voiceStatus.textContent = "This browser can't check audio recording formats. You can type your message instead.";
-    return;
-  }
-  const mimeType = [
-    "audio/mp4",
-    "audio/webm;codecs=opus",
-    "audio/webm",
-  ].find((type) => MediaRecorder.isTypeSupported(type));
-  if (!mimeType) {
-    voiceStatus.textContent = "This browser doesn't support a compatible audio format. You can type your message instead.";
     return;
   }
 
@@ -1437,7 +1441,7 @@ async function startVoiceInput() {
       return;
     }
 
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const recorder = createVoiceRecorder(stream);
     voiceDraft = chatInput.value.trim();
     voiceChunks = [];
     voiceChunkBytes = 0;
