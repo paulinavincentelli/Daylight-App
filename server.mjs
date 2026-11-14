@@ -8,6 +8,8 @@ import { OAuth2Client } from "google-auth-library";
 import { createAccountApi } from "./account-api.mjs";
 import { createDatabase, initializeDatabase } from "./database.mjs";
 import {
+  MAX_VOICE_AUDIO_BYTES,
+  MAX_VOICE_MULTIPART_REQUEST_BYTES,
   MAX_VOICE_REQUEST_BYTES,
   transcribeVoiceAudio,
 } from "./voice-transcription.mjs";
@@ -122,6 +124,37 @@ async function readJson(request, maxBytes = 32_768) {
     throw requestError(400, "JSON body must be an object.");
   }
   return body;
+}
+
+async function readFormData(request, maxBytes) {
+  const contentType = request.headers["content-type"];
+  if (
+    typeof contentType !== "string" ||
+    !/^multipart\/form-data\s*;/i.test(contentType)
+  ) {
+    throw requestError(415, "Send the audio recording as multipart form data.");
+  }
+
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) {
+      throw requestError(413, "The audio recording is too large.");
+    }
+    chunks.push(chunk);
+  }
+
+  try {
+    const formRequest = new Request("http://localhost/", {
+      method: "POST",
+      headers: { "content-type": contentType },
+      body: Buffer.concat(chunks),
+    });
+    return await formRequest.formData();
+  } catch {
+    throw requestError(400, "Provide a valid multipart audio recording.");
+  }
 }
 
 function validTimes(value) {
@@ -448,7 +481,31 @@ async function handleTranscription(request, response, user) {
     throw requestError(503, "Voice transcription is not configured. Set GEMINI_API_KEY on the server.");
   }
   recordAiRequest(user);
-  const body = await readJson(request, MAX_VOICE_REQUEST_BYTES);
+  const contentType = request.headers["content-type"] || "";
+  let body;
+  if (contentType.toLowerCase().startsWith("multipart/form-data")) {
+    const formData = await readFormData(request, MAX_VOICE_MULTIPART_REQUEST_BYTES);
+    const audioFiles = formData.getAll("audio");
+    const audioFile = audioFiles[0];
+    if (
+      audioFiles.length !== 1 ||
+      !audioFile ||
+      typeof audioFile.arrayBuffer !== "function" ||
+      typeof audioFile.type !== "string"
+    ) {
+      throw requestError(400, "Provide exactly one audio recording.");
+    }
+    const audio = Buffer.from(await audioFile.arrayBuffer());
+    if (!audio.length || audio.length > MAX_VOICE_AUDIO_BYTES) {
+      throw requestError(
+        audio.length > MAX_VOICE_AUDIO_BYTES ? 413 : 400,
+        "The audio recording is empty or too large."
+      );
+    }
+    body = { audio, mimeType: audioFile.type };
+  } else {
+    body = await readJson(request, MAX_VOICE_REQUEST_BYTES);
+  }
   const transcript = await transcribeVoiceAudio(body, key);
   sendJson(response, 200, { transcript });
 }

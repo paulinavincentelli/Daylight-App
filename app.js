@@ -355,10 +355,11 @@ function queueTaskSync() {
 }
 
 async function apiRequest(path, method = "GET", body) {
+  const isFormData = body instanceof FormData;
   const response = await fetch(path, {
     method,
-    headers: body ? { "Content-Type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
+    headers: body && !isFormData ? { "Content-Type": "application/json" } : undefined,
+    body: isFormData ? body : body ? JSON.stringify(body) : undefined,
   });
   let result;
   try {
@@ -1300,15 +1301,6 @@ function stopVoiceInput({ discard = false, status = "" } = {}) {
   }
 }
 
-async function blobToBase64(blob) {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 32_768) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
-  }
-  return btoa(binary);
-}
-
 async function finishVoiceRecording(recorder) {
   clearTimeout(voiceRecordingTimeout);
   voiceRecordingTimeout = null;
@@ -1349,10 +1341,9 @@ async function finishVoiceRecording(recorder) {
   updateVoiceButtons(false, true);
   voiceStatus.textContent = "Transcribing your recording…";
   try {
-    const result = await apiRequest("/api/transcribe", "POST", {
-      audio: await blobToBase64(audio),
-      mimeType: audio.type,
-    });
+    const formData = new FormData();
+    formData.append("audio", audio, voiceRecordingFilename(audio.type));
+    const result = await apiRequest("/api/transcribe", "POST", formData);
     if (typeof result.transcript !== "string") {
       throw new Error("The transcription service returned an invalid response.");
     }
@@ -1373,6 +1364,24 @@ async function finishVoiceRecording(recorder) {
     chatSubmitButton.disabled = assistantBusy;
     updateVoiceButtons(false);
   }
+}
+
+function voiceRecordingFilename(mimeType) {
+  const extensions = {
+    "audio/mp4": "m4a",
+    "audio/webm": "webm",
+    "audio/ogg": "ogg",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/aac": "aac",
+    "audio/flac": "flac",
+  };
+  const baseMimeType = mimeType.split(";")[0].trim().toLowerCase();
+  const extension = extensions[baseMimeType];
+  if (!extension) throw new Error("The recorded audio format is not supported.");
+  return `recording.${extension}`;
 }
 
 function voiceStartErrorMessage(error) {

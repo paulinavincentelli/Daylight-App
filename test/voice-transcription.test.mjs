@@ -6,7 +6,7 @@ import {
 } from "../voice-transcription.mjs";
 
 test("sends a validated audio recording to Gemini and returns its transcript", async () => {
-  const audio = Buffer.from("sample audio").toString("base64");
+  const audio = Buffer.from("sample audio");
   let requestUrl;
   let requestOptions;
   const transcript = await transcribeVoiceAudio(
@@ -31,7 +31,31 @@ test("sends a validated audio recording to Gemini and returns its transcript", a
   const requestBody = JSON.parse(requestOptions.body);
   assert.deepEqual(requestBody.contents[0].parts[1].inlineData, {
     mimeType: "audio/webm",
-    data: audio,
+    data: audio.toString("base64"),
+  });
+});
+
+test("accepts a binary audio file from a multipart upload", async () => {
+  const audio = Buffer.from("sample audio");
+  let requestOptions;
+  await transcribeVoiceAudio(
+    { audio, mimeType: "audio/mp4" },
+    "test-key",
+    async (_url, options) => {
+      requestOptions = options;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "Call Alex." }] } }],
+        }),
+      };
+    }
+  );
+  const requestBody = JSON.parse(requestOptions.body);
+  assert.deepEqual(requestBody.contents[0].parts[1].inlineData, {
+    mimeType: "audio/mp4",
+    data: audio.toString("base64"),
   });
 });
 
