@@ -837,6 +837,7 @@ async function cleanupExpiredAuthData() {
 }
 
 async function handleApi(request, response, pathname) {
+  console.info("handleApi called", { pathname, method: request.method, hasAccountApi: !!accountApi, hasPool: !!pool });
   if (pathname === "/api/auth/config" && request.method === "GET") {
     sendJson(response, 200, { googleClientId: pool ? googleClientId : "" });
     return;
@@ -1172,6 +1173,7 @@ async function start() {
 
     const handleRequest = async () => {
       try {
+        console.info("Request received", { method: request.method, pathname, isApiRoute, isAuthRoute, hasAccountApi: !!accountApi, hasPool: !!pool });
         runCors();
 
         if (request.method === "OPTIONS" && isApiRoute) {
@@ -1181,6 +1183,7 @@ async function start() {
         }
 
         if (isAuthRoute) {
+          console.info("Handling auth route", { pathname });
           await handleApi(request, response, pathname);
           return;
         }
