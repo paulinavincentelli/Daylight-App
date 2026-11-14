@@ -523,6 +523,7 @@ async function initializeGoogleSignIn() {
         void submitGoogleCredential(response);
       },
     });
+    googleSignInButton.replaceChildren();
     window.google.accounts.id.renderButton(googleSignInButton, {
       theme: "filled_black",
       size: "large",
