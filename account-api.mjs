@@ -220,11 +220,7 @@ async function sendPasswordReset(pool, user, origin) {
 }
 
 async function attemptAccountEmail(send) {
-  try {
-    await send();
-  } catch (error) {
-    console.error("Account email delivery failed.", error);
-  }
+  await send();
 }
 
 export async function resolveSessionUser(request, pool) {
