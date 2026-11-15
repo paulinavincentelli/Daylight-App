@@ -44,6 +44,7 @@ const vapidPath = join(dataDirectory, "vapid-keys.json");
 const subscriptionsPath = join(dataDirectory, "subscriptions.json");
 const port = Number(process.env.PORT || 3000);
 const isProduction = process.env.NODE_ENV === "production";
+console.info("Startup config", { isProduction, hasResendKey: !!process.env.RESEND_API_KEY, hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID, port, nodeEnv: process.env.NODE_ENV });
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || "";
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
