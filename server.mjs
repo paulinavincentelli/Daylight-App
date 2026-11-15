@@ -1084,11 +1084,14 @@ async function start() {
     throw new Error("PORT must be an integer between 1 and 65535.");
   }
   if (process.env.DATABASE_URL) {
+    console.info("Connecting to database...");
     pool = createDatabase(process.env.DATABASE_URL);
     pool.on("error", (error) => {
       console.error("Unexpected Postgres connection error.", error);
     });
+    console.info("Initializing database schema...");
     await initializeDatabase(pool);
+    console.info("Database initialized");
     await cleanupExpiredAuthData();
     const configuredOrigin =
       process.env.APP_ORIGIN ||
@@ -1143,6 +1146,7 @@ async function start() {
     vapidKeys.publicKey,
     vapidKeys.privateKey
   );
+  console.info("Starting HTTP server on port", port, "host", isProduction ? "0.0.0.0" : "127.0.0.1");
 
   const server = createServer((request, response) => {
     const requestUrl = new URL(request.url, `http://${request.headers.host || `localhost:${port}`}`);
