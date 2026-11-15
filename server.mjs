@@ -48,8 +48,6 @@ const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || "";
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
   : null;
-const facebookAppId = process.env.FACEBOOK_APP_ID?.trim() || "";
-const facebookAppSecret = process.env.FACEBOOK_APP_SECRET?.trim() || "";
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
   ["/index.html", ["index.html", "text/html; charset=utf-8"]],
@@ -1116,21 +1114,6 @@ async function start() {
       throw new Error("Set VAPID_SUBJECT to a mailto: or HTTPS contact URI.");
     }
     appOrigin = parsedOrigin.origin;
-    const verifyFacebookCredential = facebookAppId && facebookAppSecret
-      ? async (accessToken) => {
-          const response = await fetch(
-            `https://graph.facebook.com/me?fields=id,email&access_token=${accessToken}`
-          );
-          if (!response.ok) {
-            throw new Error("Invalid Facebook access token");
-          }
-          const data = await response.json();
-          if (!data.id || !data.email) {
-            throw new Error("Facebook account missing email");
-          }
-          return data;
-        }
-      : undefined;
     accountApi = createAccountApi({
       pool,
       origin: appOrigin,
@@ -1144,7 +1127,6 @@ async function start() {
             return ticket.getPayload();
           }
         : undefined,
-      verifyFacebookCredential,
     });
     vapidKeys = await loadDatabaseVapidKeys();
     console.info("Postgres-backed accounts and task sync are enabled.");

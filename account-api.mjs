@@ -237,109 +237,6 @@ async function findOrCreateGoogleUser(pool, claims) {
   return user;
 }
 
-async function findOrCreateFacebookUser(pool, claims) {
-  if (
-    !claims ||
-    typeof claims.id !== "string" ||
-    !claims.id ||
-    claims.id.length > 255
-  ) {
-    throw requestError(401, "Facebook could not verify this account.");
-  }
-  let email;
-  try {
-    email = normalizeEmail(claims.email);
-  } catch {
-    throw requestError(401, "Facebook account must have a verified email.");
-  }
-  const client = await pool.connect();
-  let user;
-  try {
-    await client.query("BEGIN");
-    const lockKeys = [`email:${email}`, `facebook:${claims.id}`].sort();
-    for (const lockKey of lockKeys) {
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        [lockKey]
-      );
-    }
-
-    const linked = await client.query(
-      "SELECT id, email FROM users WHERE facebook_id = $1 FOR UPDATE",
-      [claims.id]
-    );
-    if (linked.rows[0]) {
-      user = linked.rows[0];
-      if (user.email !== email) {
-        const owner = await client.query(
-          "SELECT id FROM users WHERE email = $1 FOR UPDATE",
-          [email]
-        );
-        if (owner.rows[0] && owner.rows[0].id !== user.id) {
-          throw requestError(
-            409,
-            "This email is already used by another Daylight account."
-          );
-        }
-        await client.query(
-          "UPDATE users SET email = $1, email_verified_at = NOW() WHERE id = $2",
-          [email, user.id]
-        );
-        user.email = email;
-      } else {
-        await client.query(
-          "UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = $1",
-          [user.id]
-        );
-      }
-    } else {
-      const existing = await client.query(
-        "SELECT id, email, facebook_id FROM users WHERE email = $1 FOR UPDATE",
-        [email]
-      );
-      if (existing.rows[0]) {
-        if (existing.rows[0].facebook_id) {
-          throw requestError(
-            409,
-            "This email is already connected to a different Facebook account."
-          );
-        }
-        user = existing.rows[0];
-        await client.query(
-          `UPDATE users
-              SET facebook_id = $1, email_verified_at = NOW()
-            WHERE id = $2`,
-          [claims.id, user.id]
-        );
-      } else {
-        const id = randomUUID();
-        const inserted = await client.query(
-          `INSERT INTO users(id, email, facebook_id, email_verified_at)
-           VALUES($1, $2, $3, NOW())
-           RETURNING id, email`,
-          [id, email, claims.id]
-        );
-        user = inserted.rows[0];
-        await client.query(
-          "INSERT INTO user_sync(user_id, revision) VALUES($1, 0)",
-          [user.id]
-        );
-      }
-    }
-    await client.query("COMMIT");
-  } catch (error) {
-    try {
-      await client.query("ROLLBACK");
-    } catch {
-      // The transaction may already have been rolled back.
-    }
-    throw error;
-  } finally {
-    client.release();
-  }
-  return user;
-}
-
 function validateTaskList(value) {
   if (!Array.isArray(value) || value.length > 1000) {
     throw requestError(400, "Provide up to 1,000 tasks.");
@@ -455,7 +352,6 @@ export function createAccountApi({
   origin,
   sendJson,
   verifyGoogleCredential,
-  verifyFacebookCredential,
 }) {
   async function getGoogleUser(credential) {
     if (!verifyGoogleCredential) {
@@ -472,23 +368,6 @@ export function createAccountApi({
       throw requestError(401, "Google sign-in could not be verified. Please try again.");
     }
     return findOrCreateGoogleUser(pool, claims);
-  }
-
-  async function getFacebookUser(accessToken) {
-    if (!verifyFacebookCredential) {
-      throw requestError(503, "Facebook sign-in is not configured.");
-    }
-    if (typeof accessToken !== "string" || !accessToken || accessToken.length > 8192) {
-      throw requestError(400, "A valid Facebook access token is required.");
-    }
-    let claims;
-    try {
-      claims = await verifyFacebookCredential(accessToken);
-    } catch (error) {
-      console.warn("Facebook credential verification failed.", error.message);
-      throw requestError(401, "Facebook sign-in could not be verified. Please try again.");
-    }
-    return findOrCreateFacebookUser(pool, claims);
   }
 
   async function requireUser(request) {
@@ -536,15 +415,6 @@ export function createAccountApi({
         "Referrer-Policy": "no-referrer",
       });
       response.end();
-      return true;
-    }
-
-    if (pathname === "/api/auth/facebook" && request.method === "POST") {
-      rateLimit(request, "facebook-login", 10, 15 * 60 * 1000);
-      const body = await readJson(request);
-      const user = await getFacebookUser(body.accessToken);
-      await createSession(pool, response, user.id);
-      sendJson(response, 200, { user: { id: user.id, email: user.email } });
       return true;
     }
 

@@ -47,13 +47,6 @@ const voiceStatus = document.querySelector("#chat-voice-status");
 const clockLabel = document.querySelector("#clock");
 const authScreen = document.querySelector("#auth-screen");
 const authTitle = document.querySelector("#auth-title");
-const authDescription = document.querySelector(".auth-description");
-const authForm = document.querySelector("#auth-form");
-const authEmailInput = document.querySelector("#auth-email");
-const authPasswordInput = document.querySelector("#auth-password");
-const authPasswordConfirm = document.querySelector("#auth-password-confirm");
-const authConfirmField = document.querySelector("#auth-confirm-field");
-const authSubmitButton = document.querySelector("#auth-submit");
 const authStatus = document.querySelector("#auth-status");
 const googleSignIn = document.querySelector("#google-signin");
 const googleSignInButton = document.querySelector("#google-signin-button");
@@ -62,13 +55,6 @@ const googleSignInStatus = document.querySelector("#google-signin-status");
 const accountLoadPanel = document.querySelector("#account-load-panel");
 const accountLoadStatus = document.querySelector("#account-load-status");
 const retryAccountLoadButton = document.querySelector("#retry-account-load");
-const passwordResetForm = document.querySelector("#password-reset-form");
-const resetPasswordInput = document.querySelector("#reset-password");
-const resetPasswordConfirm = document.querySelector("#reset-password-confirm");
-const forgotPasswordButton = document.querySelector("#forgot-password");
-const resendVerificationButton = document.querySelector("#resend-verification");
-const showSignInButton = document.querySelector("#show-sign-in");
-const showSignUpButton = document.querySelector("#show-sign-up");
 const accountControls = document.querySelector("#account-controls");
 const accountEmail = document.querySelector("#account-email");
 const signOutButton = document.querySelector("#sign-out");
@@ -111,8 +97,6 @@ let voiceCancelRequested = false;
 let voiceDiscardOnStop = false;
 let voiceTooLarge = false;
 let voiceDraft = "";
-let authMode = "login";
-let passwordResetToken = "";
 let taskRevision = 0;
 let taskSyncQueue = Promise.resolve();
 let taskSyncPending = 0;
@@ -440,21 +424,15 @@ async function refreshAccountTasks() {
   }
 }
 
-function showAuthMessage(message, canResend = false) {
+function showAuthMessage(message) {
   authStatus.textContent = message;
-  resendVerificationButton.hidden = !canResend;
 }
 
 function setAccountLoadView(visible, message = "") {
   const signInElements = [
     document.querySelector(".auth-eyebrow"),
     authTitle,
-    authDescription,
-    document.querySelector(".auth-tabs"),
-    authForm,
-    forgotPasswordButton,
-    resendVerificationButton,
-    passwordResetForm,
+    googleSignIn,
     authStatus,
   ];
   signInElements.forEach((element) => {
@@ -463,29 +441,6 @@ function setAccountLoadView(visible, message = "") {
   googleSignIn.hidden = visible || !googleSignInConfigured;
   accountLoadPanel.hidden = !visible;
   accountLoadStatus.textContent = message;
-}
-
-function setAuthMode(mode) {
-  authMode = mode;
-  authTitle.textContent = mode === "login" ? "Welcome back." : "Create your account.";
-  authDescription.textContent =
-    mode === "login"
-      ? "Sign in to keep your tasks in sync across devices."
-      : "Create an account to securely sync your tasks across devices.";
-  authSubmitButton.textContent =
-    mode === "login" ? "Sign in" : "Create account";
-  authPasswordInput.autocomplete =
-    mode === "login" ? "current-password" : "new-password";
-  authConfirmField.hidden = mode !== "register";
-  authPasswordConfirm.required = mode === "register";
-  forgotPasswordButton.hidden = mode !== "login";
-  showSignInButton.classList.toggle("is-active", mode === "login");
-  showSignUpButton.classList.toggle("is-active", mode === "register");
-  showSignInButton.setAttribute("aria-pressed", String(mode === "login"));
-  showSignUpButton.setAttribute("aria-pressed", String(mode === "register"));
-  authStatus.textContent = "";
-  googleSignInStatus.textContent = "";
-  resendVerificationButton.hidden = true;
 }
 
 async function submitGoogleCredential(response) {
@@ -581,19 +536,6 @@ async function initializeGoogleSignIn() {
       googleSignInStatus.textContent = error.message;
     }
   }
-}
-
-function showResetForm(token) {
-  passwordResetToken = token;
-  authTitle.textContent = "Choose a new password.";
-  authDescription.textContent = "Use at least 12 characters for your new password.";
-  document.querySelector(".auth-tabs").hidden = true;
-  authForm.hidden = true;
-  googleSignIn.hidden = true;
-  forgotPasswordButton.hidden = true;
-  resendVerificationButton.hidden = true;
-  passwordResetForm.hidden = false;
-  resetPasswordInput.focus();
 }
 
 async function showSignedInApp(user, localTasks = []) {
@@ -717,21 +659,11 @@ function showSignInScreen(message = "") {
   syncReloadButton.hidden = true;
   signedInUser = null;
   setAccountLoadView(false);
-  setAuthMode("login");
-  authForm.hidden = false;
-  passwordResetForm.hidden = true;
-  document.querySelector(".auth-tabs").hidden = false;
-  forgotPasswordButton.hidden = false;
+  googleSignIn.hidden = false;
+  googleSignInStatus.textContent = "";
   showAuthMessage(message);
-  authEmailInput.focus();
 }
 
-authForm.addEventListener("submit", submitAuthForm);
-passwordResetForm.addEventListener("submit", submitPasswordReset);
-showSignInButton.addEventListener("click", () => setAuthMode("login"));
-showSignUpButton.addEventListener("click", () => setAuthMode("register"));
-forgotPasswordButton.addEventListener("click", requestPasswordReset);
-resendVerificationButton.addEventListener("click", resendVerificationEmail);
 signOutButton.addEventListener("click", signOut);
 googleSignInPreviewButton.addEventListener("click", () => {
   showAuthMessage("Google sign-in is disabled in this preview.");
@@ -782,26 +714,6 @@ async function startApp() {
       return;
     }
     const hash = new URLSearchParams(location.hash.slice(1));
-    const verifyToken = hash.get("verify");
-    const resetToken = hash.get("reset");
-    if (resetToken) {
-      showSignInScreen();
-      showResetForm(resetToken);
-      return;
-    }
-    if (verifyToken) {
-      try {
-        const verification = await apiRequest("/api/auth/verify-email", "POST", {
-          token: verifyToken,
-        });
-        history.replaceState(null, "", `${location.pathname}${location.search}`);
-        await showSignedInApp(verification.user, todos);
-      } catch (error) {
-        showSignInScreen();
-        showAuthMessage(error.message);
-      }
-      return;
-    }
     if (result.user) {
       await showSignedInApp(result.user, todos);
       return;
@@ -817,92 +729,6 @@ async function startApp() {
     console.error("Could not check the account session.", error);
     showSignInScreen(`Could not connect to Daylight: ${error.message}`);
     showGoogleRedirectError();
-  }
-}
-
-async function submitAuthForm(event) {
-  event.preventDefault();
-  if (isLocalSignInPreview) {
-    showAuthMessage("Sign-in is disabled in this preview.");
-    return;
-  }
-  const email = authEmailInput.value.trim();
-  const password = authPasswordInput.value;
-  if (authMode === "register" && password !== authPasswordConfirm.value) {
-    showAuthMessage("The passwords do not match.");
-    authPasswordConfirm.focus();
-    return;
-  }
-  try {
-    const endpoint =
-      authMode === "register" ? "/api/auth/register" : "/api/auth/login";
-    const result = await apiRequest(endpoint, "POST", { email, password });
-    if (authMode === "register") {
-      authStatus.textContent = result.message;
-      resendVerificationButton.hidden = false;
-      return;
-    }
-    await showSignedInApp(result.user, todos);
-  } catch (error) {
-    const canResend = error.message.toLowerCase().includes("verify your email");
-    showAuthMessage(error.message, canResend);
-  }
-}
-
-async function submitPasswordReset(event) {
-  event.preventDefault();
-  if (resetPasswordInput.value !== resetPasswordConfirm.value) {
-    showAuthMessage("The passwords do not match.");
-    resetPasswordConfirm.focus();
-    return;
-  }
-  try {
-    const result = await apiRequest("/api/auth/reset-password", "POST", {
-      token: passwordResetToken,
-      password: resetPasswordInput.value,
-    });
-    history.replaceState(null, "", `${location.pathname}${location.search}`);
-    await showSignedInApp(result.user, todos);
-  } catch (error) {
-    showAuthMessage(error.message);
-  }
-}
-
-async function requestPasswordReset() {
-  if (isLocalSignInPreview) {
-    showAuthMessage("Password reset is disabled in this preview.");
-    return;
-  }
-  const email = authEmailInput.value.trim();
-  if (!email) {
-    showAuthMessage("Enter your email address first.");
-    authEmailInput.focus();
-    return;
-  }
-  try {
-    const result = await apiRequest("/api/auth/forgot-password", "POST", { email });
-    showAuthMessage(result.message);
-  } catch (error) {
-    showAuthMessage(error.message);
-  }
-}
-
-async function resendVerificationEmail() {
-  const email = authEmailInput.value.trim();
-  if (!email) {
-    showAuthMessage("Enter your email address first.");
-    authEmailInput.focus();
-    return;
-  }
-  try {
-    const result = await apiRequest(
-      "/api/auth/resend-verification",
-      "POST",
-      { email }
-    );
-    showAuthMessage(result.message);
-  } catch (error) {
-    showAuthMessage(error.message);
   }
 }
 

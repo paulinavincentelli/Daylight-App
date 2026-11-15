@@ -63,13 +63,6 @@ class MemoryPool {
               .map(({ id, email }) => ({ id, email })),
           };
         }
-        if (query.startsWith("select id, email from users where facebook_id")) {
-          return {
-            rows: this.users
-              .filter((user) => user.facebook_id === values[0])
-              .map(({ id, email }) => ({ id, email })),
-          };
-        }
         if (query.startsWith("select id from users where email")) {
           return {
             rows: this.users
@@ -101,64 +94,12 @@ class MemoryPool {
           user.email_verified_at = new Date();
           return { rows: [] };
         }
-        if (query.startsWith("select id, email, facebook_id from users")) {
-          return {
-            rows: this.users
-              .filter((user) => user.email === values[0])
-              .map(({ id, email, facebook_id }) => ({ id, email, facebook_id })),
-          };
-        }
-        if (query.startsWith("update users set facebook_id")) {
-          const user = this.users.find(({ id }) => id === values[1]);
-          user.facebook_id = values[0];
-          user.email_verified_at = new Date();
-          return { rows: [] };
-        }
         if (query.startsWith("insert into users")) {
-          // Handle Google (3 values: id, email, google_sub), Facebook (3 values: id, email, facebook_id), or legacy (4 values)
-          if (values.length === 4) {
-            // Legacy: id, email, google_sub, facebook_id
+          if (values.length === 3) {
             const user = {
               id: values[0],
               email: values[1],
-              google_sub: values[2] || null,
-              facebook_id: values[3] || null,
-              email_verified_at: new Date(),
-            };
-            this.users.push(user);
-            return { rows: [{ id: user.id, email: user.email }] };
-          } else if (values.length === 3) {
-            // Check the original SQL to determine if it's Google or Facebook insert
-            const isGoogleInsert = sql.toLowerCase().includes("google_sub");
-            const isFacebookInsert = sql.toLowerCase().includes("facebook_id");
-            const thirdValue = values[2];
-            if (isGoogleInsert) {
-              const user = {
-                id: values[0],
-                email: values[1],
-                google_sub: thirdValue,
-                facebook_id: null,
-                email_verified_at: new Date(),
-              };
-              this.users.push(user);
-              return { rows: [{ id: user.id, email: user.email }] };
-            } else if (isFacebookInsert) {
-              const user = {
-                id: values[0],
-                email: values[1],
-                google_sub: null,
-                facebook_id: thirdValue,
-                email_verified_at: new Date(),
-              };
-              this.users.push(user);
-              return { rows: [{ id: user.id, email: user.email }] };
-            }
-            // Fallback: assume Google
-            const user = {
-              id: values[0],
-              email: values[1],
-              google_sub: thirdValue,
-              facebook_id: null,
+              google_sub: values[2],
               email_verified_at: new Date(),
             };
             this.users.push(user);
@@ -268,7 +209,6 @@ test("task lists are account-scoped and stale revisions cannot overwrite", async
       }
       throw new Error("Invalid credential");
     },
-    verifyFacebookCredential: async () => { throw new Error("Not implemented"); },
   });
 
   const googleLoginA = await request(api, "POST", "/api/auth/google", {
@@ -329,7 +269,6 @@ test("Google sign-in creates a verified account and links by verified email", as
     id: "existing-user",
     email: "existing@example.com",
     google_sub: null,
-    facebook_id: null,
     email_verified_at: null,
   };
   const pool = new MemoryPool([existingUser]);
@@ -354,7 +293,6 @@ test("Google sign-in creates a verified account and links by verified email", as
       }
       throw new Error("Invalid credential");
     },
-    verifyFacebookCredential: async () => { throw new Error("Not implemented"); },
   });
 
   const linked = await request(api, "POST", "/api/auth/google", {
@@ -395,7 +333,6 @@ test("Google redirect sign-in verifies GIS CSRF tokens and creates a session", a
       }
       throw new Error("Invalid credential");
     },
-    verifyFacebookCredential: async () => { throw new Error("Not implemented"); },
   });
 
   const formData = new URLSearchParams({
@@ -438,53 +375,6 @@ test("Google redirect sign-in verifies GIS CSRF tokens and creates a session", a
       "/api/auth/google/redirect"
     ),
     { status: 400 }
-  );
-});
-
-test("Facebook sign-in creates a verified account and links by verified email", async () => {
-  const existingUser = {
-    id: "existing-user",
-    email: "existing@example.com",
-    google_sub: null,
-    facebook_id: null,
-    email_verified_at: null,
-  };
-  const pool = new MemoryPool([existingUser]);
-  const api = createAccountApi({
-    pool,
-    origin: "https://daylight.example",
-    sendJson,
-    verifyGoogleCredential: async () => { throw new Error("Not implemented"); },
-    verifyFacebookCredential: async (accessToken) => {
-      if (accessToken === "existing-fb-token") {
-        return { id: "fb-existing", email: "EXISTING@example.com" };
-      }
-      if (accessToken === "new-fb-token") {
-        return { id: "fb-new", email: "new@example.com" };
-      }
-      throw new Error("Invalid access token");
-    },
-  });
-
-  const linked = await request(api, "POST", "/api/auth/facebook", {
-    accessToken: "existing-fb-token",
-  });
-  assert.equal(linked.status, 200);
-  assert.equal(linked.body.user.email, "existing@example.com");
-  assert.equal(pool.users[0].facebook_id, "fb-existing");
-  assert.ok(pool.users[0].email_verified_at);
-
-  const created = await request(api, "POST", "/api/auth/facebook", {
-    accessToken: "new-fb-token",
-  });
-  assert.equal(created.status, 200);
-  assert.equal(created.body.user.email, "new@example.com");
-  assert.equal(pool.users[1].facebook_id, "fb-new");
-  assert.ok(pool.users[1].email_verified_at);
-
-  await assert.rejects(
-    request(api, "POST", "/api/auth/facebook", { accessToken: "invalid" }),
-    { status: 401 }
   );
 });
 

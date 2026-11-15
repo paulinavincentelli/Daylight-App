@@ -26,27 +26,10 @@
       <section class="todo-card" aria-labelledby="page-title">
         <h1 class="sr-only" id="page-title">Daylight tasks</h1>
 
-        <section class="auth-screen" id="auth-screen" aria-labelledby="auth-title" hidden>
+<section class="auth-screen" id="auth-screen" aria-labelledby="auth-title" hidden>
           <p class="auth-eyebrow">YOUR DAYLIGHT, EVERYWHERE</p>
-          <h2 id="auth-title">Welcome back.</h2>
-          <p class="auth-description">Sign in to keep your tasks in sync across devices.</p>
-          <div class="auth-tabs" role="group" aria-label="Account action">
-            <button type="button" id="show-sign-in" class="is-active" aria-pressed="true">Sign in</button>
-            <button type="button" id="show-sign-up" aria-pressed="false">Create account</button>
-          </div>
-          <form id="auth-form">
-            <label for="auth-email">Email</label>
-            <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="254" required>
-            <label for="auth-password">Password</label>
-            <input id="auth-password" name="password" type="password" autocomplete="current-password" minlength="12" maxlength="128" required>
-            <div class="auth-confirm-field" id="auth-confirm-field" hidden>
-              <label for="auth-password-confirm">Confirm password</label>
-              <input id="auth-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128">
-            </div>
-            <button class="auth-submit" id="auth-submit" type="submit">Sign in</button>
-          </form>
+          <h2 id="auth-title">Sign in to sync your tasks across devices.</h2>
           <div class="google-signin" id="google-signin" hidden>
-            <p class="google-signin-divider">or continue with</p>
             <div class="google-signin-button" id="google-signin-button" hidden></div>
             <button class="google-signin-preview-button" id="google-signin-preview-button" type="button" hidden>
               <svg aria-hidden="true" focusable="false" viewBox="0 0 24 24">
@@ -59,15 +42,6 @@
             </button>
             <p class="google-signin-status" id="google-signin-status" role="status" aria-live="polite"></p>
           </div>
-          <button class="auth-text-button" id="forgot-password" type="button">Forgot password?</button>
-          <button class="auth-text-button" id="resend-verification" type="button" hidden>Resend verification email</button>
-          <form id="password-reset-form" hidden>
-            <label for="reset-password">New password</label>
-            <input id="reset-password" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
-            <label for="reset-password-confirm">Confirm new password</label>
-            <input id="reset-password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required>
-            <button class="auth-submit" type="submit">Save new password</button>
-          </form>
           <p class="auth-status" id="auth-status" role="status" aria-live="polite"></p>
           <div class="account-load-panel" id="account-load-panel" hidden>
             <p id="account-load-status" role="status" aria-live="polite"></p>
