@@ -830,10 +830,7 @@ async function runDatabaseScheduler() {
 
 async function cleanupExpiredAuthData() {
   if (!pool) return;
-  await Promise.all([
-    pool.query("DELETE FROM email_tokens WHERE expires_at <= NOW()"),
-    pool.query("DELETE FROM sessions WHERE expires_at <= NOW()"),
-  ]);
+  await pool.query("DELETE FROM sessions WHERE expires_at <= NOW()");
 }
 
 async function handleApi(request, response, pathname) {
