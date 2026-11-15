@@ -1,27 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { Resend } from "resend";
 import {
   createToken,
-  hashPassword,
   hashToken,
-  verifyPassword,
 } from "./auth-utils.mjs";
 
 const SESSION_COOKIE = "daylight_session";
 const SESSION_DAYS = 7;
 const authAttempts = new Map();
-let dummyPasswordHash;
-let resend;
-
-function getResend() {
-  if (!resend) {
-    if (!process.env.RESEND_API_KEY) {
-      throw requestError(503, "Email delivery is not configured on the server.");
-    }
-    resend = new Resend(process.env.RESEND_API_KEY);
-  }
-  return resend;
-}
 
 function requestError(status, message) {
   const error = new Error(message);
@@ -52,7 +37,7 @@ async function readJson(request, maxBytes = 16_384) {
 async function readUrlEncoded(request, maxBytes = 16_384) {
   const contentType = request.headers["content-type"] || "";
   if (!/^application\/x-www-form-urlencoded(?:\s*;|$)/i.test(contentType)) {
-    throw requestError(415, "Google returned an invalid sign-in response.");
+    throw requestError(415, "Invalid content type.");
   }
   const chunks = [];
   let bytes = 0;
@@ -103,13 +88,6 @@ function normalizeEmail(value) {
   return value.trim().toLowerCase();
 }
 
-function validPassword(value) {
-  if (typeof value !== "string" || value.length < 12 || value.length > 128) {
-    throw requestError(400, "Use a password between 12 and 128 characters.");
-  }
-  return value;
-}
-
 function readCookieValue(request, name) {
   const cookies = request.headers.cookie?.split(";") || [];
   const rawValue = cookies
@@ -153,79 +131,6 @@ async function createSession(pool, response, userId) {
     [hashToken(token), userId, expiresAt]
   );
   setSessionCookie(response, token);
-}
-
-async function sendAccountEmail(to, purpose, token, origin) {
-  const resendClient = getResend();
-  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
-  const isVerification = purpose === "verify";
-  const subject = isVerification
-    ? "Verify your Daylight account"
-    : "Reset your Daylight password";
-  const url = `${origin}/#${isVerification ? "verify" : "reset"}=${token}`;
-  const action = isVerification ? "Verify email" : "Reset password";
-  console.info("Sending account email via Resend", { to, from, subject, purpose, url });
-  try {
-    const { data, error } = await resendClient.emails.send({
-      from,
-      to,
-      subject,
-      text: `${action}: ${url}\n\nIf you did not request this, you can ignore this email.`,
-      html: `<p><a href="${url}">${action}</a></p><p>If you did not request this, you can ignore this email.</p>`,
-    });
-    if (error) {
-      console.error("Resend API error", { to, from, purpose, error });
-      throw requestError(503, "The email could not be sent. Please try again later.");
-    }
-    console.info("Account email sent via Resend", { messageId: data?.id });
-  } catch (error) {
-    if (error.status) throw error;
-    console.error("Could not send account email.", { to, from, purpose, error: error.message, stack: error.stack });
-    throw requestError(503, "The email could not be sent. Please try again later.");
-  }
-}
-
-async function createEmailToken(pool, userId, purpose) {
-  const token = createToken();
-  const hours = purpose === "verify" ? 24 : 1;
-  await pool.query(
-    "DELETE FROM email_tokens WHERE user_id = $1 AND purpose = $2",
-    [userId, purpose]
-  );
-  await pool.query(
-    "INSERT INTO email_tokens(token_hash, user_id, purpose, expires_at) VALUES($1, $2, $3, NOW() + ($4 * INTERVAL '1 hour'))",
-    [hashToken(token), userId, purpose, hours]
-  );
-  return token;
-}
-
-async function sendVerification(pool, user, origin) {
-  const token = await createEmailToken(pool, user.id, "verify");
-  await sendAccountEmail(user.email, "verify", token, origin);
-}
-
-async function sendPasswordReset(pool, user, origin) {
-  const token = await createEmailToken(pool, user.id, "reset");
-  await sendAccountEmail(user.email, "reset", token, origin);
-}
-
-async function attemptAccountEmail(send) {
-  await send();
-}
-
-export async function resolveSessionUser(request, pool) {
-  const token = readCookie(request, SESSION_COOKIE);
-  if (!token) return null;
-  const { rows } = await pool.query(
-    `SELECT users.id, users.email
-       FROM sessions
-       JOIN users ON users.id = sessions.user_id
-      WHERE sessions.token_hash = $1
-        AND sessions.expires_at > NOW()
-        AND users.email_verified_at IS NOT NULL`,
-    [hashToken(token)]
-  );
-  return rows[0] || null;
 }
 
 async function findOrCreateGoogleUser(pool, claims) {
@@ -303,17 +208,116 @@ async function findOrCreateGoogleUser(pool, claims) {
             WHERE id = $2`,
           [claims.sub, user.id]
         );
+      } else {
+        const id = randomUUID();
+        const inserted = await client.query(
+          `INSERT INTO users(id, email, google_sub, email_verified_at)
+           VALUES($1, $2, $3, NOW())
+           RETURNING id, email`,
+          [id, email, claims.sub]
+        );
+        user = inserted.rows[0];
         await client.query(
-          "DELETE FROM email_tokens WHERE user_id = $1 AND purpose = 'verify'",
+          "INSERT INTO user_sync(user_id, revision) VALUES($1, 0)",
           [user.id]
+        );
+      }
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // The transaction may already have been rolled back.
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+  return user;
+}
+
+async function findOrCreateFacebookUser(pool, claims) {
+  if (
+    !claims ||
+    typeof claims.id !== "string" ||
+    !claims.id ||
+    claims.id.length > 255
+  ) {
+    throw requestError(401, "Facebook could not verify this account.");
+  }
+  let email;
+  try {
+    email = normalizeEmail(claims.email);
+  } catch {
+    throw requestError(401, "Facebook account must have a verified email.");
+  }
+  const client = await pool.connect();
+  let user;
+  try {
+    await client.query("BEGIN");
+    const lockKeys = [`email:${email}`, `facebook:${claims.id}`].sort();
+    for (const lockKey of lockKeys) {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [lockKey]
+      );
+    }
+
+    const linked = await client.query(
+      "SELECT id, email FROM users WHERE facebook_id = $1 FOR UPDATE",
+      [claims.id]
+    );
+    if (linked.rows[0]) {
+      user = linked.rows[0];
+      if (user.email !== email) {
+        const owner = await client.query(
+          "SELECT id FROM users WHERE email = $1 FOR UPDATE",
+          [email]
+        );
+        if (owner.rows[0] && owner.rows[0].id !== user.id) {
+          throw requestError(
+            409,
+            "This email is already used by another Daylight account."
+          );
+        }
+        await client.query(
+          "UPDATE users SET email = $1, email_verified_at = NOW() WHERE id = $2",
+          [email, user.id]
+        );
+        user.email = email;
+      } else {
+        await client.query(
+          "UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE id = $1",
+          [user.id]
+        );
+      }
+    } else {
+      const existing = await client.query(
+        "SELECT id, email, facebook_id FROM users WHERE email = $1 FOR UPDATE",
+        [email]
+      );
+      if (existing.rows[0]) {
+        if (existing.rows[0].facebook_id) {
+          throw requestError(
+            409,
+            "This email is already connected to a different Facebook account."
+          );
+        }
+        user = existing.rows[0];
+        await client.query(
+          `UPDATE users
+              SET facebook_id = $1, email_verified_at = NOW()
+            WHERE id = $2`,
+          [claims.id, user.id]
         );
       } else {
         const id = randomUUID();
         const inserted = await client.query(
-          `INSERT INTO users(id, email, password_hash, google_sub, email_verified_at)
-           VALUES($1, $2, NULL, $3, NOW())
+          `INSERT INTO users(id, email, facebook_id, email_verified_at)
+           VALUES($1, $2, $3, NOW())
            RETURNING id, email`,
-          [id, email, claims.sub]
+          [id, email, claims.id]
         );
         user = inserted.rows[0];
         await client.query(
@@ -451,6 +455,7 @@ export function createAccountApi({
   origin,
   sendJson,
   verifyGoogleCredential,
+  verifyFacebookCredential,
 }) {
   async function getGoogleUser(credential) {
     if (!verifyGoogleCredential) {
@@ -467,6 +472,23 @@ export function createAccountApi({
       throw requestError(401, "Google sign-in could not be verified. Please try again.");
     }
     return findOrCreateGoogleUser(pool, claims);
+  }
+
+  async function getFacebookUser(accessToken) {
+    if (!verifyFacebookCredential) {
+      throw requestError(503, "Facebook sign-in is not configured.");
+    }
+    if (typeof accessToken !== "string" || !accessToken || accessToken.length > 8192) {
+      throw requestError(400, "A valid Facebook access token is required.");
+    }
+    let claims;
+    try {
+      claims = await verifyFacebookCredential(accessToken);
+    } catch (error) {
+      console.warn("Facebook credential verification failed.", error.message);
+      throw requestError(401, "Facebook sign-in could not be verified. Please try again.");
+    }
+    return findOrCreateFacebookUser(pool, claims);
   }
 
   async function requireUser(request) {
@@ -517,230 +539,12 @@ export function createAccountApi({
       return true;
     }
 
-    if (pathname === "/api/auth/register" && request.method === "POST") {
-      rateLimit(request, "register", 5, 60 * 60 * 1000);
+    if (pathname === "/api/auth/facebook" && request.method === "POST") {
+      rateLimit(request, "facebook-login", 10, 15 * 60 * 1000);
       const body = await readJson(request);
-      const email = normalizeEmail(body.email);
-      rateLimitKey(`register-email:${email}`, 5, 60 * 60 * 1000);
-      const password = validPassword(body.password);
-      const passwordHash = await hashPassword(password);
-      const id = randomUUID();
-      let user;
-      try {
-        const inserted = await pool.query(
-          "INSERT INTO users(id, email, password_hash) VALUES($1, $2, $3) RETURNING id, email",
-          [id, email, passwordHash]
-        );
-        user = inserted.rows[0];
-        await pool.query(
-          "INSERT INTO user_sync(user_id, revision) VALUES($1, 0)",
-          [id]
-        );
-      } catch (error) {
-        if (error.code !== "23505") throw error;
-        const existing = await pool.query(
-          "SELECT id, email, email_verified_at FROM users WHERE email = $1",
-          [email]
-        );
-        user = existing.rows[0];
-      }
-      if (user && !user.email_verified_at) {
-        await attemptAccountEmail(() => sendVerification(pool, user, origin));
-      }
-      sendJson(response, 202, {
-        message: "If this address can be registered, a verification link has been sent.",
-      });
-      return true;
-    }
-
-    if (pathname === "/api/auth/resend-verification" && request.method === "POST") {
-      rateLimit(request, "resend", 5, 60 * 60 * 1000);
-      const body = await readJson(request);
-      const email = normalizeEmail(body.email);
-      rateLimitKey(`resend-email:${email}`, 3, 60 * 60 * 1000);
-      const { rows } = await pool.query(
-        "SELECT id, email, email_verified_at FROM users WHERE email = $1",
-        [email]
-      );
-      const user = rows[0];
-      if (user && !user.email_verified_at) {
-        await attemptAccountEmail(() => sendVerification(pool, user, origin));
-      }
-      sendJson(response, 200, {
-        message: "If the account needs verification, a new link has been sent.",
-      });
-      return true;
-    }
-
-    if (pathname === "/api/auth/verify-email" && request.method === "POST") {
-      rateLimit(request, "verify", 20, 15 * 60 * 1000);
-      const body = await readJson(request);
-      if (typeof body.token !== "string" || body.token.length > 128) {
-        throw requestError(400, "The verification link is invalid or expired.");
-      }
-      const client = await pool.connect();
-      let user;
-      try {
-        await client.query("BEGIN");
-        const result = await client.query(
-          `SELECT users.id, users.email
-             FROM email_tokens
-             JOIN users ON users.id = email_tokens.user_id
-            WHERE email_tokens.token_hash = $1
-              AND email_tokens.purpose = 'verify'
-              AND email_tokens.expires_at > NOW()
-            FOR UPDATE`,
-          [hashToken(body.token)]
-        );
-        user = result.rows[0];
-        if (!user) {
-          await client.query("ROLLBACK");
-          throw requestError(400, "The verification link is invalid or expired.");
-        }
-        await client.query(
-          "UPDATE users SET email_verified_at = NOW() WHERE id = $1",
-          [user.id]
-        );
-        await client.query(
-          "DELETE FROM email_tokens WHERE user_id = $1 AND purpose = 'verify'",
-          [user.id]
-        );
-        await client.query("COMMIT");
-      } catch (error) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {
-          // The transaction may already have been rolled back.
-        }
-        throw error;
-      } finally {
-        client.release();
-      }
+      const user = await getFacebookUser(body.accessToken);
       await createSession(pool, response, user.id);
-      sendJson(response, 200, { user });
-      return true;
-    }
-
-    if (pathname === "/api/auth/login" && request.method === "POST") {
-      rateLimit(request, "login", 10, 15 * 60 * 1000);
-      const body = await readJson(request);
-      const email = normalizeEmail(body.email);
-      rateLimitKey(`login-email:${email}`, 10, 15 * 60 * 1000);
-      if (typeof body.password !== "string" || body.password.length > 128) {
-        throw requestError(400, "Email or password is incorrect.");
-      }
-      const { rows } = await pool.query(
-        "SELECT id, email, password_hash, email_verified_at FROM users WHERE email = $1",
-        [email]
-      );
-      if (!dummyPasswordHash) {
-        dummyPasswordHash = await hashPassword("invalid-login-timing-value");
-      }
-      const user = rows[0];
-      const matches = await verifyPassword(
-        body.password,
-        user?.password_hash || dummyPasswordHash
-      );
-      if (!user || !matches) {
-        throw requestError(401, "Email or password is incorrect.");
-      }
-      if (!user.email_verified_at) {
-        throw requestError(
-          403,
-          "Verify your email before signing in. You can resend the verification link."
-        );
-      }
-      await createSession(pool, response, user.id);
-      sendJson(response, 200, {
-        user: { id: user.id, email: user.email },
-      });
-      return true;
-    }
-
-    if (pathname === "/api/auth/forgot-password" && request.method === "POST") {
-      rateLimit(request, "forgot", 5, 60 * 60 * 1000);
-      const body = await readJson(request);
-      const email = normalizeEmail(body.email);
-      rateLimitKey(`forgot-email:${email}`, 3, 60 * 60 * 1000);
-      const { rows } = await pool.query(
-        "SELECT id, email FROM users WHERE email = $1 AND email_verified_at IS NOT NULL",
-        [email]
-      );
-      if (rows[0]) {
-        await attemptAccountEmail(() =>
-          sendPasswordReset(pool, rows[0], origin)
-        );
-      }
-      sendJson(response, 200, {
-        message: "If an account exists for that address, a password reset link has been sent.",
-      });
-      return true;
-    }
-
-    if (pathname === "/api/auth/reset-password" && request.method === "POST") {
-      rateLimit(request, "reset", 10, 15 * 60 * 1000);
-      const body = await readJson(request);
-      if (typeof body.token !== "string" || body.token.length > 128) {
-        throw requestError(400, "The password reset link is invalid or expired.");
-      }
-      const password = validPassword(body.password);
-      const tokenHash = hashToken(body.token);
-      const available = await pool.query(
-        `SELECT 1
-           FROM email_tokens
-           JOIN users ON users.id = email_tokens.user_id
-          WHERE email_tokens.token_hash = $1
-            AND email_tokens.purpose = 'reset'
-            AND email_tokens.expires_at > NOW()
-            AND users.email_verified_at IS NOT NULL`,
-        [tokenHash]
-      );
-      if (!available.rowCount) {
-        throw requestError(400, "The password reset link is invalid or expired.");
-      }
-      const passwordHash = await hashPassword(password);
-      const client = await pool.connect();
-      let user;
-      try {
-        await client.query("BEGIN");
-        const result = await client.query(
-          `SELECT users.id, users.email
-             FROM email_tokens
-             JOIN users ON users.id = email_tokens.user_id
-            WHERE email_tokens.token_hash = $1
-              AND email_tokens.purpose = 'reset'
-              AND email_tokens.expires_at > NOW()
-              AND users.email_verified_at IS NOT NULL
-            FOR UPDATE`,
-          [tokenHash]
-        );
-        user = result.rows[0];
-        if (!user) {
-          await client.query("ROLLBACK");
-          throw requestError(400, "The password reset link is invalid or expired.");
-        }
-        await client.query(
-          "UPDATE users SET password_hash = $1 WHERE id = $2",
-          [passwordHash, user.id]
-        );
-        await client.query(
-          "DELETE FROM email_tokens WHERE user_id = $1",
-          [user.id]
-        );
-        await client.query("DELETE FROM sessions WHERE user_id = $1", [user.id]);
-        await client.query("COMMIT");
-      } catch (error) {
-        try {
-          await client.query("ROLLBACK");
-        } catch {
-          // The transaction may already have been rolled back.
-        }
-        throw error;
-      } finally {
-        client.release();
-      }
-      await createSession(pool, response, user.id);
-      sendJson(response, 200, { user });
+      sendJson(response, 200, { user: { id: user.id, email: user.email } });
       return true;
     }
 
@@ -774,4 +578,19 @@ export function createAccountApi({
   }
 
   return { handle, requireUser };
+}
+
+export async function resolveSessionUser(request, pool) {
+  const token = readCookie(request, SESSION_COOKIE);
+  if (!token) return null;
+  const { rows } = await pool.query(
+    `SELECT users.id, users.email
+       FROM sessions
+       JOIN users ON users.id = sessions.user_id
+      WHERE sessions.token_hash = $1
+        AND sessions.expires_at > NOW()
+        AND users.email_verified_at IS NOT NULL`,
+    [hashToken(token)]
+  );
+  return rows[0] || null;
 }

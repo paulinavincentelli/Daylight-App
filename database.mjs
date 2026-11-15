@@ -17,24 +17,17 @@ export async function initializeDatabase(pool) {
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
-      password_hash TEXT,
       google_sub TEXT,
+      facebook_id TEXT,
       email_verified_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS facebook_id TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_idx
       ON users(google_sub) WHERE google_sub IS NOT NULL;
-    CREATE TABLE IF NOT EXISTS email_tokens (
-      token_hash CHAR(64) PRIMARY KEY,
-      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      purpose TEXT NOT NULL CHECK (purpose IN ('verify', 'reset')),
-      expires_at TIMESTAMPTZ NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    );
-    CREATE INDEX IF NOT EXISTS email_tokens_user_purpose_idx
-      ON email_tokens(user_id, purpose);
+    CREATE UNIQUE INDEX IF NOT EXISTS users_facebook_id_idx
+      ON users(facebook_id) WHERE facebook_id IS NOT NULL;
     CREATE TABLE IF NOT EXISTS sessions (
       token_hash CHAR(64) PRIMARY KEY,
       user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

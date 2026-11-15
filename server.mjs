@@ -44,11 +44,12 @@ const vapidPath = join(dataDirectory, "vapid-keys.json");
 const subscriptionsPath = join(dataDirectory, "subscriptions.json");
 const port = Number(process.env.PORT || 3000);
 const isProduction = process.env.NODE_ENV === "production";
-console.info("Startup config", { isProduction, hasResendKey: !!process.env.RESEND_API_KEY, hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID, port, nodeEnv: process.env.NODE_ENV });
 const googleClientId = process.env.GOOGLE_CLIENT_ID?.trim() || "";
 const googleAuthClient = googleClientId
   ? new OAuth2Client(googleClientId)
   : null;
+const facebookAppId = process.env.FACEBOOK_APP_ID?.trim() || "";
+const facebookAppSecret = process.env.FACEBOOK_APP_SECRET?.trim() || "";
 const files = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
   ["/index.html", ["index.html", "text/html; charset=utf-8"]],
@@ -1108,9 +1109,6 @@ async function start() {
     ) {
       throw new Error("APP_ORIGIN must use HTTPS in production.");
     }
-    if (isProduction && !process.env.RESEND_API_KEY) {
-      throw new Error("RESEND_API_KEY is required for verified accounts.");
-    }
     if (
       isProduction &&
       !/^(mailto:\S+|https:\/\/\S+)$/.test(process.env.VAPID_SUBJECT || "")
@@ -1118,6 +1116,21 @@ async function start() {
       throw new Error("Set VAPID_SUBJECT to a mailto: or HTTPS contact URI.");
     }
     appOrigin = parsedOrigin.origin;
+    const verifyFacebookCredential = facebookAppId && facebookAppSecret
+      ? async (accessToken) => {
+          const response = await fetch(
+            `https://graph.facebook.com/me?fields=id,email&access_token=${accessToken}`
+          );
+          if (!response.ok) {
+            throw new Error("Invalid Facebook access token");
+          }
+          const data = await response.json();
+          if (!data.id || !data.email) {
+            throw new Error("Facebook account missing email");
+          }
+          return data;
+        }
+      : undefined;
     accountApi = createAccountApi({
       pool,
       origin: appOrigin,
@@ -1131,6 +1144,7 @@ async function start() {
             return ticket.getPayload();
           }
         : undefined,
+      verifyFacebookCredential,
     });
     vapidKeys = await loadDatabaseVapidKeys();
     console.info("Postgres-backed accounts and task sync are enabled.");
