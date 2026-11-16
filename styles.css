@@ -1532,29 +1532,29 @@ body.chat-open {
   animation: appear 180ms ease-out;
 }
 
-.todo-item:nth-child(6n + 1) {
+.todo-item.task-color-0 {
   background: var(--lavender);
 }
 
-.todo-item:nth-child(6n + 2) {
+.todo-item.task-color-1 {
   background: var(--violet);
   color: #fff;
 }
 
-.todo-item:nth-child(6n + 3) {
+.todo-item.task-color-2 {
   background: var(--deep-purple);
   color: #fff;
 }
 
-.todo-item:nth-child(6n + 4) {
+.todo-item.task-color-3 {
   background: var(--star-blue);
 }
 
-.todo-item:nth-child(6n + 5) {
+.todo-item.task-color-4 {
   background: var(--star-mint);
 }
 
-.todo-item:nth-child(6n) {
+.todo-item.task-color-5 {
   background: var(--soft-lime);
 }
 

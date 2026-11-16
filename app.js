@@ -969,10 +969,19 @@ function renderCalendar() {
   calendarGrid.replaceChildren(...cells);
 }
 
+function taskColorIndex(id) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  return hash % 6;
+}
+
 function createTodoElement(todo) {
   const item = document.createElement("li");
   item.className = `todo-item${todo.completed ? " is-complete" : ""}`;
   item.dataset.id = todo.id;
+  item.classList.add(`task-color-${taskColorIndex(todo.id)}`);
 
   const toggle = document.createElement("button");
   toggle.className = "todo-toggle";
