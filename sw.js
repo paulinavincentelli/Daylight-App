@@ -12,6 +12,7 @@ self.addEventListener("push", (event) => {
       icon: "/icon.svg",
       badge: "/icon.svg",
       tag: message.tag || "daylight-reminder",
+      vibrate: [200, 100, 200],
       data: { url: message.url || "/?screen=reminders" },
     })
   );
