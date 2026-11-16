@@ -665,6 +665,8 @@ function showSignInScreen(message = "") {
 }
 
 signOutButton.addEventListener("click", signOut);
+list.addEventListener("pointerdown", onListPointerDown);
+list.addEventListener("keydown", onListKeyDown);
 googleSignInPreviewButton.addEventListener("click", () => {
   showAuthMessage("Google sign-in is disabled in this preview.");
 });
@@ -970,6 +972,7 @@ function renderCalendar() {
 function createTodoElement(todo) {
   const item = document.createElement("li");
   item.className = `todo-item${todo.completed ? " is-complete" : ""}`;
+  item.dataset.id = todo.id;
 
   const toggle = document.createElement("button");
   toggle.className = "todo-toggle";
@@ -1079,8 +1082,225 @@ function createTodoElement(todo) {
   });
 
   actions.append(edit, remove);
-  item.append(toggle, text, actions);
+  item.append(createDragHandle(todo), toggle, text, actions);
   return item;
+}
+
+function createDragHandle(todo) {
+  const handle = document.createElement("button");
+  handle.type = "button";
+  handle.className = "drag-handle";
+  handle.dataset.dragHandle = "";
+  handle.setAttribute("aria-label", `Reorder task: ${todo.text}`);
+  handle.title = "Drag to reorder";
+  handle.innerHTML =
+    '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">' +
+    '<circle cx="6" cy="4" r="1.3"></circle><circle cx="10" cy="4" r="1.3"></circle>' +
+    '<circle cx="6" cy="8" r="1.3"></circle><circle cx="10" cy="8" r="1.3"></circle>' +
+    '<circle cx="6" cy="12" r="1.3"></circle><circle cx="10" cy="12" r="1.3"></circle>' +
+    "</svg>";
+  return handle;
+}
+
+function matchesActiveFilter(todo) {
+  if (activeFilter === "active") return !todo.completed;
+  if (activeFilter === "completed") return todo.completed;
+  return true;
+}
+
+function visibleTodosForSelectedDate() {
+  return todos.filter(
+    (todo) => todo.date === selectedDate && matchesActiveFilter(todo)
+  );
+}
+
+function reorderTodos(draggedId, targetId, placeAfter) {
+  if (!draggedId || !targetId || draggedId === targetId) return;
+  const order = visibleTodosForSelectedDate().map((todo) => todo.id);
+  const fromIndex = order.indexOf(draggedId);
+  if (fromIndex === -1) return;
+  order.splice(fromIndex, 1);
+  let targetIndex = order.indexOf(targetId);
+  if (targetIndex === -1) return;
+  if (placeAfter) targetIndex += 1;
+  order.splice(targetIndex, 0, draggedId);
+
+  const byId = new Map(todos.map((todo) => [todo.id, todo]));
+  let cursor = 0;
+  todos = todos.map((todo) => {
+    if (todo.date === selectedDate && matchesActiveFilter(todo)) {
+      return byId.get(order[cursor++]);
+    }
+    return todo;
+  });
+  saveTodos();
+  render();
+}
+
+function focusHandleForId(id) {
+  const item = [...list.querySelectorAll(".todo-item")].find(
+    (element) => element.dataset.id === id
+  );
+  item?.querySelector(".drag-handle")?.focus();
+}
+
+let dragState = null;
+let dragAutoScrollFrame = null;
+
+function clearDropIndicators() {
+  list
+    .querySelectorAll(".todo-item.drop-before, .todo-item.drop-after")
+    .forEach((element) =>
+      element.classList.remove("drop-before", "drop-after")
+    );
+}
+
+function updateDropTarget(clientX, clientY) {
+  if (!dragState) return;
+  const dragged = dragState.item;
+  const stack = document.elementsFromPoint
+    ? document.elementsFromPoint(clientX, clientY)
+    : [];
+  let targetItem = null;
+  for (const element of stack) {
+    const candidate = element.closest?.(".todo-item");
+    if (candidate && candidate !== dragged && list.contains(candidate)) {
+      targetItem = candidate;
+      break;
+    }
+  }
+  clearDropIndicators();
+  if (!targetItem) {
+    dragState.targetId = null;
+    return;
+  }
+  const rect = targetItem.getBoundingClientRect();
+  const placeAfter = clientY > rect.top + rect.height / 2;
+  targetItem.classList.add(placeAfter ? "drop-after" : "drop-before");
+  dragState.targetId = targetItem.dataset.id;
+  dragState.placeAfter = placeAfter;
+}
+
+function autoScrollDrag() {
+  if (!dragState || !dragState.active) {
+    dragAutoScrollFrame = null;
+    return;
+  }
+  const margin = 72;
+  const maxSpeed = 16;
+  const y = dragState.lastY;
+  let speed = 0;
+  if (y < margin) {
+    speed = -maxSpeed * (1 - Math.max(y, 0) / margin);
+  } else if (y > window.innerHeight - margin) {
+    speed =
+      maxSpeed * (1 - Math.max(window.innerHeight - y, 0) / margin);
+  }
+  if (speed) {
+    window.scrollBy(0, speed);
+    updateDropTarget(dragState.lastX, dragState.lastY);
+  }
+  dragAutoScrollFrame = requestAnimationFrame(autoScrollDrag);
+}
+
+function activateDrag() {
+  dragState.active = true;
+  dragState.item.classList.add("is-dragging");
+  document.body.classList.add("is-dragging-active");
+  if (!dragAutoScrollFrame) {
+    dragAutoScrollFrame = requestAnimationFrame(autoScrollDrag);
+  }
+}
+
+function onListPointerDown(event) {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  const handle = event.target.closest?.(".drag-handle");
+  if (!handle) return;
+  const item = handle.closest(".todo-item");
+  if (!item || !list.contains(item)) return;
+  event.preventDefault();
+  dragState = {
+    pointerId: event.pointerId,
+    id: item.dataset.id,
+    item,
+    startX: event.clientX,
+    startY: event.clientY,
+    lastX: event.clientX,
+    lastY: event.clientY,
+    active: false,
+    targetId: null,
+    placeAfter: false,
+  };
+  try {
+    item.setPointerCapture(event.pointerId);
+  } catch {
+    /* pointer capture is best-effort */
+  }
+  document.addEventListener("pointermove", onPointerMove);
+  document.addEventListener("pointerup", onPointerUp);
+  document.addEventListener("pointercancel", onPointerUp);
+}
+
+function onPointerMove(event) {
+  if (!dragState || event.pointerId !== dragState.pointerId) return;
+  const dx = event.clientX - dragState.startX;
+  const dy = event.clientY - dragState.startY;
+  if (!dragState.active) {
+    if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+    activateDrag();
+  }
+  event.preventDefault();
+  dragState.lastX = event.clientX;
+  dragState.lastY = event.clientY;
+  dragState.item.style.transform = `translate(${dx}px, ${dy}px)`;
+  updateDropTarget(event.clientX, event.clientY);
+}
+
+function onPointerUp(event) {
+  if (!dragState || event.pointerId !== dragState.pointerId) return;
+  const { active, id, targetId, placeAfter } = dragState;
+  cleanupDrag();
+  if (active && targetId) {
+    reorderTodos(id, targetId, placeAfter);
+  }
+}
+
+function cleanupDrag() {
+  document.removeEventListener("pointermove", onPointerMove);
+  document.removeEventListener("pointerup", onPointerUp);
+  document.removeEventListener("pointercancel", onPointerUp);
+  if (dragAutoScrollFrame) {
+    cancelAnimationFrame(dragAutoScrollFrame);
+    dragAutoScrollFrame = null;
+  }
+  if (dragState) {
+    try {
+      dragState.item.releasePointerCapture(dragState.pointerId);
+    } catch {
+      /* pointer capture is best-effort */
+    }
+    dragState.item.style.transform = "";
+    dragState.item.classList.remove("is-dragging");
+  }
+  clearDropIndicators();
+  document.body.classList.remove("is-dragging-active");
+  dragState = null;
+}
+
+function onListKeyDown(event) {
+  const handle = event.target.closest?.(".drag-handle");
+  if (!handle) return;
+  if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+  event.preventDefault();
+  const id = handle.closest(".todo-item")?.dataset.id;
+  if (!id) return;
+  const visible = visibleTodosForSelectedDate();
+  const index = visible.findIndex((todo) => todo.id === id);
+  if (index === -1) return;
+  const nextIndex = event.key === "ArrowUp" ? index - 1 : index + 1;
+  if (nextIndex < 0 || nextIndex >= visible.length) return;
+  reorderTodos(id, visible[nextIndex].id, event.key === "ArrowDown");
+  focusHandleForId(id);
 }
 
 function render() {
