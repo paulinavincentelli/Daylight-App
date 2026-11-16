@@ -1158,24 +1158,35 @@ function clearDropIndicators() {
 function updateDropTarget(clientX, clientY) {
   if (!dragState) return;
   const dragged = dragState.item;
-  const stack = document.elementsFromPoint
-    ? document.elementsFromPoint(clientX, clientY)
-    : [];
-  let targetItem = null;
-  for (const element of stack) {
-    const candidate = element.closest?.(".todo-item");
-    if (candidate && candidate !== dragged && list.contains(candidate)) {
-      targetItem = candidate;
-      break;
-    }
-  }
+  const items = [...list.querySelectorAll(".todo-item")].filter(
+    (item) => item !== dragged
+  );
   clearDropIndicators();
-  if (!targetItem) {
+  if (!items.length) {
     dragState.targetId = null;
     return;
   }
-  const rect = targetItem.getBoundingClientRect();
-  const placeAfter = clientY > rect.top + rect.height / 2;
+
+  let targetItem = null;
+  let placeAfter = false;
+  for (const item of items) {
+    const rect = item.getBoundingClientRect();
+    if (clientY < rect.top) {
+      targetItem = item;
+      placeAfter = false;
+      break;
+    }
+    if (clientY <= rect.bottom) {
+      targetItem = item;
+      placeAfter = clientY > rect.top + rect.height / 2;
+      break;
+    }
+  }
+  if (!targetItem) {
+    targetItem = items[items.length - 1];
+    placeAfter = true;
+  }
+
   targetItem.classList.add(placeAfter ? "drop-after" : "drop-before");
   dragState.targetId = targetItem.dataset.id;
   dragState.placeAfter = placeAfter;
