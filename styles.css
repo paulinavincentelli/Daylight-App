@@ -2224,7 +2224,8 @@ body.is-dragging-active {
 .intro-logo {
   width: min(200px, 52vw);
   height: min(200px, 52vw);
-  filter: drop-shadow(0 0 26px rgba(121, 201, 234, 0.35));
+  filter: drop-shadow(0 0 12px rgba(121, 201, 234, 0.55))
+    drop-shadow(0 0 34px rgba(146, 120, 255, 0.35));
   animation: introPulse 1.1s ease-in-out infinite;
 }
 
