@@ -2015,4 +2015,16 @@ function showReminderScreen(focusSettings = false, returnFocus = notificationTog
 }
 
 if (!isLocalSignInPreview) void initializeGoogleSignIn();
+
+const introScreen = document.querySelector("#intro-screen");
+if (introScreen) {
+  const removeIntro = () => introScreen.remove();
+  introScreen.addEventListener("click", removeIntro);
+  document.addEventListener("keydown", removeIntro, { once: true });
+  introScreen.addEventListener("animationend", (event) => {
+    if (event.animationName === "introFade") removeIntro();
+  });
+  window.setTimeout(removeIntro, 3000);
+}
+
 startApp();
