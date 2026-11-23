@@ -969,19 +969,11 @@ function renderCalendar() {
   calendarGrid.replaceChildren(...cells);
 }
 
-function taskColorIndex(id) {
-  let hash = 0;
-  for (let i = 0; i < id.length; i += 1) {
-    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
-  }
-  return hash % 6;
-}
-
-function createTodoElement(todo) {
+function createTodoElement(todo, index) {
   const item = document.createElement("li");
   item.className = `todo-item${todo.completed ? " is-complete" : ""}`;
   item.dataset.id = todo.id;
-  item.classList.add(`task-color-${taskColorIndex(todo.id)}`);
+  item.classList.add(`task-color-${index % 6}`);
 
   const toggle = document.createElement("button");
   toggle.className = "todo-toggle";
@@ -1340,7 +1332,7 @@ function render() {
           month: "short",
           day: "numeric",
         })}`;
-  list.replaceChildren(...visibleTodos.map(createTodoElement));
+  list.replaceChildren(...visibleTodos.map((todo, index) => createTodoElement(todo, index)));
   if (editingTodoId) {
     const editor = list.querySelector(".todo-edit-input");
     editor?.focus();
