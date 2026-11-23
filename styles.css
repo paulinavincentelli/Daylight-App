@@ -1558,6 +1558,36 @@ body.chat-open {
   background: var(--soft-lime);
 }
 
+.todo-item.task-color-6 {
+  background: var(--lime);
+  color: #fff;
+}
+
+.todo-item.task-color-7 {
+  background: var(--blue-violet);
+  color: #fff;
+}
+
+.todo-item.task-color-8 {
+  background: var(--violet);
+  opacity: 0.85;
+}
+
+.todo-item.task-color-9 {
+  background: var(--star-blue);
+  opacity: 0.85;
+}
+
+.todo-item.task-color-10 {
+  background: var(--star-mint);
+  opacity: 0.85;
+}
+
+.todo-item.task-color-11 {
+  background: var(--soft-lime);
+  opacity: 0.85;
+}
+
 .todo-toggle {
   width: 22px;
   height: 22px;

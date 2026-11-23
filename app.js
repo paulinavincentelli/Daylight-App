@@ -973,7 +973,7 @@ function createTodoElement(todo, index) {
   const item = document.createElement("li");
   item.className = `todo-item${todo.completed ? " is-complete" : ""}`;
   item.dataset.id = todo.id;
-  item.classList.add(`task-color-${index % 6}`);
+  item.classList.add(`task-color-${index % 12}`);
 
   const toggle = document.createElement("button");
   toggle.className = "todo-toggle";
