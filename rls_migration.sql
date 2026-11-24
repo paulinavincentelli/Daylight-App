@@ -1,3 +1,25 @@
+-- Drop existing policies first (idempotent)
+DROP POLICY IF EXISTS "users_select_own" ON public.users;
+DROP POLICY IF EXISTS "users_insert_own" ON public.users;
+DROP POLICY IF EXISTS "users_update_own" ON public.users;
+DROP POLICY IF EXISTS "sessions_select_own" ON public.sessions;
+DROP POLICY IF EXISTS "sessions_insert_own" ON public.sessions;
+DROP POLICY IF EXISTS "sessions_delete_own" ON public.sessions;
+DROP POLICY IF EXISTS "user_sync_select_own" ON public.user_sync;
+DROP POLICY IF EXISTS "user_sync_insert_own" ON public.user_sync;
+DROP POLICY IF EXISTS "user_sync_update_own" ON public.user_sync;
+DROP POLICY IF EXISTS "tasks_select_own" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_insert_own" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_update_own" ON public.tasks;
+DROP POLICY IF EXISTS "tasks_delete_own" ON public.tasks;
+DROP POLICY IF EXISTS "push_subscriptions_select_own" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "push_subscriptions_insert_own" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "push_subscriptions_update_own" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "push_subscriptions_delete_own" ON public.push_subscriptions;
+DROP POLICY IF EXISTS "app_settings_select_authenticated" ON public.app_settings;
+DROP POLICY IF EXISTS "app_settings_update_service" ON public.app_settings;
+DROP POLICY IF EXISTS "app_settings_insert_service" ON public.app_settings;
+
 -- Enable RLS on all six public tables
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
