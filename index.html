@@ -88,15 +88,15 @@
           <button class="add-button" type="submit" aria-label="Add task">+</button>
         </form>
 
-        <section class="calendar-panel" id="calendar-panel" aria-label="Choose a task date" hidden>
-          <h2 class="calendar-month" id="calendar-month"></h2>
-          <div class="calendar-weekdays" aria-hidden="true">
-            <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span>
-            <span>Thu</span><span>Fri</span><span>Sat</span>
-          </div>
-          <div class="calendar-grid" id="calendar-grid"></div>
-          <p class="calendar-hint">Choose a day to view or plan tasks. Past dates are unavailable.</p>
-        </section>
+<section class="calendar-panel" id="calendar-panel" aria-label="Choose a task date" hidden>
+  <div class="calendar-nav">
+    <button type="button" class="calendar-nav-button" id="calendar-prev-year" aria-label="Previous year">‹</button>
+    <h2 class="calendar-month" id="calendar-month"></h2>
+    <button type="button" class="calendar-nav-button" id="calendar-next-year" aria-label="Next year">›</button>
+  </div>
+  <div class="calendar-year" id="calendar-year"></div>
+  <p class="calendar-hint">Choose a day to view or plan tasks.</p>
+</section>
 
         <div class="list-heading">
           <h2 id="list-title">Today’s list</h2>

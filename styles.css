@@ -218,8 +218,48 @@ h1 span {
   background: var(--green-dark);
 }
 
-.calendar-panel[hidden] {
-  display: none;
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.calendar-nav-button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--green-dark);
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.calendar-nav-button:hover {
+  background: #e9eee6;
+}
+
+.calendar-year {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+}
+
+.calendar-month-block {
+  padding: 8px;
+  border: 1px solid #e8e9e1;
+  border-radius: 8px;
+  background: #fcfcf9;
+}
+
+.calendar-month-title {
+  margin: 0 0 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
 }
 
 .calendar-panel {
