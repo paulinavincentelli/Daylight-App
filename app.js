@@ -75,7 +75,7 @@ let chatLockedScrollY = 0;
 const todayKey = toDateKey(new Date());
 let selectedDate = todayKey;
 let calendarOpen = false;
-let calendarYear = new Date().getFullYear();
+let calendarViewDate = new Date();
 let serviceWorkerRegistration = null;
 let remindersEnabled = false;
 let authRequired = false;
@@ -915,84 +915,75 @@ async function enableOrDisableReminders() {
 }
 
 function renderCalendar() {
-  const year = calendarYear;
-  calendarMonth.textContent = String(year);
+  const year = calendarViewDate.getFullYear();
+  const month = calendarViewDate.getMonth();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  calendarMonth.textContent = new Intl.DateTimeFormat(undefined, {
+    month: "long",
+    year: "numeric",
+  }).format(calendarViewDate);
 
   const calendarYearEl = document.querySelector("#calendar-year");
   calendarYearEl.replaceChildren();
 
-  for (let month = 0; month < 12; month += 1) {
-    const monthDiv = document.createElement("div");
-    monthDiv.className = "calendar-month-block";
+  const weekdays = document.createElement("div");
+  weekdays.className = "calendar-weekdays";
+  weekdays.setAttribute("aria-hidden", "true");
+  ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((day) => {
+    const span = document.createElement("span");
+    span.textContent = day;
+    weekdays.appendChild(span);
+  });
+  calendarYearEl.appendChild(weekdays);
 
-    const monthTitle = document.createElement("h3");
-    monthTitle.className = "calendar-month-title";
-    monthTitle.textContent = new Intl.DateTimeFormat(undefined, { month: "long" }).format(
-      new Date(year, month, 1)
-    );
-    monthDiv.appendChild(monthTitle);
+  const grid = document.createElement("div");
+  grid.className = "calendar-grid";
 
-    const weekdays = document.createElement("div");
-    weekdays.className = "calendar-weekdays";
-    weekdays.setAttribute("aria-hidden", "true");
-    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].forEach((day) => {
-      const span = document.createElement("span");
-      span.textContent = day;
-      weekdays.appendChild(span);
-    });
-    monthDiv.appendChild(weekdays);
-
-    const grid = document.createElement("div");
-    grid.className = "calendar-grid";
-
-    const firstWeekday = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    for (let i = 0; i < firstWeekday; i += 1) {
-      const spacer = document.createElement("span");
-      spacer.className = "calendar-day-spacer";
-      spacer.setAttribute("aria-hidden", "true");
-      grid.appendChild(spacer);
-    }
-
-    for (let day = 1; day <= daysInMonth; day += 1) {
-      const date = new Date(year, month, day);
-      const dateKey = toDateKey(date);
-      const dateTodos = todos.filter((todo) => todo.date === dateKey);
-      const dateButton = document.createElement("button");
-      dateButton.className = "calendar-day";
-      dateButton.type = "button";
-      dateButton.dataset.date = dateKey;
-      dateButton.textContent = String(day);
-      dateButton.classList.toggle("is-today", dateKey === todayKey);
-      dateButton.classList.toggle("is-selected", dateKey === selectedDate);
-      dateButton.classList.toggle("has-tasks", dateTodos.length > 0);
-      dateButton.setAttribute("aria-pressed", String(dateKey === selectedDate));
-
-      const taskSummary = dateTodos.length
-        ? `, ${dateTodos.length} ${dateTodos.length === 1 ? "task" : "tasks"}`
-        : ", no tasks";
-      dateButton.setAttribute(
-        "aria-label",
-        `${formatDate(dateKey, {
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-        })}${taskSummary}`
-      );
-
-      dateButton.addEventListener("click", () => {
-        selectedDate = dateKey;
-        editingTodoId = null;
-        render();
-        document.querySelector(".is-selected")?.focus();
-      });
-      grid.appendChild(dateButton);
-    }
-
-    monthDiv.appendChild(grid);
-    calendarYearEl.appendChild(monthDiv);
+  for (let i = 0; i < firstWeekday; i += 1) {
+    const spacer = document.createElement("span");
+    spacer.className = "calendar-day-spacer";
+    spacer.setAttribute("aria-hidden", "true");
+    grid.appendChild(spacer);
   }
+
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = new Date(year, month, day);
+    const dateKey = toDateKey(date);
+    const dateTodos = todos.filter((todo) => todo.date === dateKey);
+    const dateButton = document.createElement("button");
+    dateButton.className = "calendar-day";
+    dateButton.type = "button";
+    dateButton.dataset.date = dateKey;
+    dateButton.textContent = String(day);
+    dateButton.classList.toggle("is-today", dateKey === todayKey);
+    dateButton.classList.toggle("is-selected", dateKey === selectedDate);
+    dateButton.classList.toggle("has-tasks", dateTodos.length > 0);
+    dateButton.setAttribute("aria-pressed", String(dateKey === selectedDate));
+
+    const taskSummary = dateTodos.length
+      ? `, ${dateTodos.length} ${dateTodos.length === 1 ? "task" : "tasks"}`
+      : ", no tasks";
+    dateButton.setAttribute(
+      "aria-label",
+      `${formatDate(dateKey, {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      })}${taskSummary}`
+    );
+
+    dateButton.addEventListener("click", () => {
+      selectedDate = dateKey;
+      editingTodoId = null;
+      render();
+      document.querySelector(".is-selected")?.focus();
+    });
+    grid.appendChild(dateButton);
+  }
+
+  calendarYearEl.appendChild(grid);
 }
 
 function createTodoElement(todo, index) {
@@ -1980,12 +1971,12 @@ calendarToggle.addEventListener("click", () => {
 });
 
 document.querySelector("#calendar-prev-year").addEventListener("click", () => {
-  calendarYear -= 1;
+  calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() - 1, 1);
   renderCalendar();
 });
 
 document.querySelector("#calendar-next-year").addEventListener("click", () => {
-  calendarYear += 1;
+  calendarViewDate = new Date(calendarViewDate.getFullYear(), calendarViewDate.getMonth() + 1, 1);
   renderCalendar();
 });
 
